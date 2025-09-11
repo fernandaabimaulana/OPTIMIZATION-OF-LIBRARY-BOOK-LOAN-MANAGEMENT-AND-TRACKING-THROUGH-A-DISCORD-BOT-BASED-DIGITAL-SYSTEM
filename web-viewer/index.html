@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-book Viewer</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f2f5;
+            font-family: Arial, sans-serif;
+        }
+        #viewer-container {
+            width: 100%;
+            max-width: 800px; /* Max width for the PDF viewer */
+            margin-top: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: white;
+            overflow: auto; /* Enable scrolling for large PDFs */
+            border-radius: 8px;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto; /* Center the canvas */
+            border-bottom: 1px solid #eee;
+        }
+        .page-number {
+            text-align: center;
+            padding: 5px 0;
+            font-size: 0.9em;
+            color: #555;
+            background-color: #f9f9f9;
+            border-top: 1px solid #eee;
+        }
+        h1 {
+            color: #333;
+            margin-top: 20px;
+        }
+        #loading-message {
+            margin-top: 50px;
+            font-size: 1.2em;
+            color: #666;
+        }
+        #download-button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            text-decoration: none; /* For anchor tag */
+        }
+        #download-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+    <!-- PDF.js library (using CDN for simplicity) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs" type="module"></script>
+</head>
+<body>
+    <h1>Memuat E-book...</h1>
+    <div id="loading-message">Harap tunggu, e-book sedang dimuat.</div>
+    <div id="viewer-container"></div>
+    <a id="download-button" href="#" style="display: none;">Unduh E-book</a>
+
+    <script type="module" src="/viewer.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(registration => {
+                        console.log('Service Worker registered: ', registration);
+                    })
+                    .catch(error => {
+                        console.log('Service Worker registration failed: ', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
