@@ -125,6 +125,10 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
+            // Defer reply for commands that don't show modals to prevent timeouts.
+            if (command.data.name !== 'login') { // 'login' shows a modal and handles its own reply.
+                await interaction.deferReply();
+            }
             await command.execute(interaction, client);
         }
         catch (error) {
