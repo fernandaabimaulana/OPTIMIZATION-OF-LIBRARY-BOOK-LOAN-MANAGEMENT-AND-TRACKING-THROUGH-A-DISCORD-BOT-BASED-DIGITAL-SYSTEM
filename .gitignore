@@ -10,3 +10,6 @@ logs/*.log
 
 # Config files that might contain secrets
 config.json
+
+# Local database dump (do not track in Git)
+db/smanung_library_db_new.sql
