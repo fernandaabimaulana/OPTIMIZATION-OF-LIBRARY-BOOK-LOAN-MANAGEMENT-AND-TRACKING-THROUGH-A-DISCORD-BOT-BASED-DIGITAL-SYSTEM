@@ -105,7 +105,7 @@ module.exports = {
                 log('INFO', 'REGISTER_ROLE', `Role 'Belum Terdaftar' berhasil diberikan kepada ${interaction.user.tag}.`);
             } catch (roleError) {
                 log('ERROR', 'REGISTER_ROLE', `Gagal memberikan role 'Belum Terdaftar' untuk ${interaction.user.tag}. Error: ${roleError.message}`);
-                // This is not a critical error, but we should log it. The user can still be verified manually.
+                // This is not a critical error, but we should log it.
             }
 
             // Notify admins for verification
@@ -135,7 +135,7 @@ module.exports = {
                 );
 
             try {
-                const logChannel = await client.channels.fetch(client.config.channels.botLogs);
+                const logChannel = await client.channels.fetch('1410599781343957101'); // Changed to specific channel ID
                 if (logChannel) {
                     await logChannel.send({ embeds: [verificationEmbed], components: [verificationButtons] });
                     log('INFO', 'REGISTER_NOTIFY', `Notifikasi verifikasi untuk ${interaction.user.tag} telah dikirim ke channel log.`);
@@ -233,9 +233,15 @@ Akun Anda sekarang sedang menunggu persetujuan dari Admin. Anda akan menerima no
                 await originalMessage.edit({ embeds: [editedEmbed], components: [] });
                 
                 try {
-                    await targetMember.send(`Selamat! Pendaftaran Anda sebagai **${roleName}** telah disetujui oleh admin. Anda sekarang memiliki akses penuh ke fitur perpustakaan.`);
+                    const approvalEmbed = new EmbedBuilder()
+                        .setColor(0x00FF00) // Green
+                        .setTitle('✅ Pendaftaran Anda Disetujui!')
+                        .setDescription(`Selamat! Pendaftaran Anda sebagai **${roleName}** telah disetujui oleh admin.
+Anda sekarang memiliki akses penuh ke fitur perpustakaan. Selamat menjelajahi!`) // More professional message
+                        .setTimestamp();
+                    await targetMember.send({ embeds: [approvalEmbed] });
                 } catch (dmError) {
-                    log('WARN', 'VERIFY_DM', `Gagal mengirim DM ke ${targetMember.user.tag}.`);
+                    log('WARN', 'VERIFY_DM', `Gagal mengirim DM persetujuan ke ${targetMember.user.tag}.`);
                 }
                 log('INFO', 'VERIFY_APPROVE', `User ${targetMember.user.tag} disetujui oleh ${adminMember.user.tag}.`);
 
@@ -252,9 +258,15 @@ Akun Anda sekarang sedang menunggu persetujuan dari Admin. Anda akan menerima no
                 await originalMessage.edit({ embeds: [editedEmbed], components: [] });
 
                 try {
-                    await targetMember.send(`Mohon maaf, pendaftaran Anda telah ditolak oleh admin.`);
+                    const rejectionEmbed = new EmbedBuilder()
+                        .setColor(0xFF0000) // Red
+                        .setTitle('❌ Pendaftaran Anda Ditolak')
+                        .setDescription(`Mohon maaf, pendaftaran Anda ke server ini telah ditolak oleh admin.
+Jika Anda merasa ini adalah kesalahan, silakan hubungi admin secara langsung.`) // More professional message
+                        .setTimestamp();
+                    await targetMember.send({ embeds: [rejectionEmbed] });
                 } catch (dmError) {
-                    log('WARN', 'VERIFY_DM', `Gagal mengirim DM ke ${targetMember.user.tag}.`);
+                    log('WARN', 'VERIFY_DM', `Gagal mengirim DM penolakan ke ${targetMember.user.tag}.`);
                 }
                 log('INFO', 'VERIFY_REJECT', `User ${targetMember.user.tag} ditolak oleh ${adminMember.user.tag}.`);
             }

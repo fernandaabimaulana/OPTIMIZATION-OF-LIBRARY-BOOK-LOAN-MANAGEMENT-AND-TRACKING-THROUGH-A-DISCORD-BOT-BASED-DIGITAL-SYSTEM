@@ -127,7 +127,7 @@ client.on('interactionCreate', async interaction => {
 
         try {
             // Defer reply for commands that don't show modals to prevent timeouts.
-            if (command.data.name !== 'login' && command.data.name !== 'lupa_password') { // Modal commands handle their own reply.
+            if (command.data.name !== 'login' && command.data.name !== 'lupa_password' && command.data.name !== 'register' && command.data.name !== 'cari_buku') { // Modal commands handle their own reply.
                 await interaction.deferReply();
             }
             await command.execute(interaction, client);
@@ -247,7 +247,7 @@ client.on('interactionCreate', async interaction => {
                         const rejectionEmbed = new EmbedBuilder()
                             .setColor(0xFF0000) // Merah
                             .setTitle('Persetujuan Bergabung Ditolak')
-                            .setDescription(`Mohon maaf, persetujuan Anda untuk bergabung kembali ke server **${interaction.guild.name}** telah ditolak oleh admin.`)
+                            .setDescription(`Mohon maaf, persetujuan Anda untuk bergabung kembali ke server **${interaction.guild.name}** telah ditolak oleh admin.`) 
                             .setFooter({ text: 'Anda dapat menghubungi admin secara langsung untuk informasi lebih lanjut.' })
                             .setTimestamp();
                         await targetMember.send({ embeds: [rejectionEmbed] });
@@ -397,7 +397,7 @@ async function handleSelectEbook(interaction, client) {
         const ebookUrl = ebook.nama_file;
         if (!ebookUrl || (!ebookUrl.startsWith('http://') && !ebookUrl.startsWith('https://'))) {
              return await interaction.editReply({
-                content: `❌ Link untuk e-book "${ebook.judul}" tidak valid atau rusak. Harap hubungi admin untuk memperbaikinya.`,
+                content: `❌ Link untuk e-book "${ebook.judul}" tidak valid atau rusak. Harap hubungi admin untuk memperbaikinya.`, 
                 flags: MessageFlags.Ephemeral
             });
         }
