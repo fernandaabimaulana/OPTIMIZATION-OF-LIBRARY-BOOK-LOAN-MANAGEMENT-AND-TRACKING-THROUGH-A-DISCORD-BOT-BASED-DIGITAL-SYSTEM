@@ -42,6 +42,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
     ],
 });
 
@@ -126,7 +127,7 @@ client.on('interactionCreate', async interaction => {
 
         try {
             // Defer reply for commands that don't show modals to prevent timeouts.
-            if (command.data.name !== 'login') { // 'login' shows a modal and handles its own reply.
+            if (command.data.name !== 'login' && command.data.name !== 'lupa_password') { // Modal commands handle their own reply.
                 await interaction.deferReply();
             }
             await command.execute(interaction, client);
@@ -194,6 +195,70 @@ client.on('interactionCreate', async interaction => {
                 if (command && command.handleButton) {
                     return await command.handleButton(interaction, client);
                 }
+            } else if (interaction.customId.startsWith('reapprove_member_') || interaction.customId.startsWith('kick_member_')) {
+                // Handler untuk persetujuan ulang anggota yang bergabung kembali
+                const adminRoleId = client.config.roles.adminPerpus;
+                if (!interaction.member.roles.cache.has(adminRoleId)) {
+                    return interaction.reply({ content: 'Hanya admin yang bisa menggunakan tombol ini.', ephemeral: true });
+                }
+
+                await interaction.deferUpdate(); // Defer update untuk memberi tahu Discord bahwa interaksi diterima
+
+                const parts = interaction.customId.split('_');
+                const action = parts[0];
+                const targetId = parts[2];
+                log('INFO', 'BUTTON_HANDLER', `Attempting to fetch member with ID: ${targetId} for action: ${action}`);
+                const targetMember = await interaction.guild.members.fetch(targetId).catch(e => {
+                    log('ERROR', 'BUTTON_HANDLER', `Failed to fetch member ${targetId}: ${e.message}`);
+                    return null;
+                });
+                if (!targetMember) {
+                    log('WARN', 'BUTTON_HANDLER', `Member ${targetId} not found after fetch for action: ${action}`);
+                    return interaction.followUp({ content: 'Anggota tersebut sudah tidak ada di server.', ephemeral: true });
+                }
+                log('INFO', 'BUTTON_HANDLER', `Successfully fetched member ${targetMember.user.tag} (ID: ${targetId}) for action: ${action}`);
+
+                if (action === 'reapprove') {
+                    const [[userRecord]] = await client.db.query('SELECT tipe_pengguna FROM pengguna WHERE discord_id = ?', [targetId]);
+                    if (!userRecord) {
+                        await interaction.message.edit({ content: `Gagal menemukan data pengguna untuk ${targetMember.user.tag} di database.`, components: [], embeds: [] });
+                        return interaction.followUp({ content: 'Data pengguna tidak ada di DB.', ephemeral: true });
+                    }
+
+                    const rolesToAdd = {
+                        'siswa': '1410599779469234263',
+                        'guru': '1410599779469234262',
+                        'admin': client.config.roles.adminPerpus
+                    };
+                    const roleId = rolesToAdd[userRecord.tipe_pengguna];
+                    
+                    if (roleId) {
+                        await targetMember.roles.add(roleId);
+                        const unverifiedRoleId = '1404769480386543717';
+                        if (targetMember.roles.cache.has(unverifiedRoleId)) {
+                            await targetMember.roles.remove(unverifiedRoleId);
+                        }
+                        await interaction.message.edit({ content: `✅ ${targetMember.user.tag} telah disetujui ulang oleh ${interaction.user.tag}.`, components: [], embeds: [] });
+                        await targetMember.send('Akun Anda telah disetujui ulang oleh admin dan role Anda telah dikembalikan.').catch(() => {});
+                    }
+                } else if (action === 'kick') {
+                    // Kirim DM ke pengguna sebelum dikeluarkan
+                    try {
+                        const rejectionEmbed = new EmbedBuilder()
+                            .setColor(0xFF0000) // Merah
+                            .setTitle('Persetujuan Bergabung Ditolak')
+                            .setDescription(`Mohon maaf, persetujuan Anda untuk bergabung kembali ke server **${interaction.guild.name}** telah ditolak oleh admin.`)
+                            .setFooter({ text: 'Anda dapat menghubungi admin secara langsung untuk informasi lebih lanjut.' })
+                            .setTimestamp();
+                        await targetMember.send({ embeds: [rejectionEmbed] });
+                    } catch (dmError) {
+                        log('WARN', 'REAPPROVAL_KICK', `Gagal mengirim DM penolakan ke ${targetMember.user.tag}.`);
+                    }
+
+                    await targetMember.kick(`Dikeluarkan oleh ${interaction.user.tag} saat persetujuan ulang.`);
+                    await interaction.message.edit({ content: `👢 ${targetMember.user.tag} telah dikeluarkan oleh ${interaction.user.tag}.`, components: [], embeds: [] });
+                }
+            
             } else if (interaction.customId.startsWith('verify_')) {
                 const command = client.commands.get('register');
                 if (command && command.handleButton) {
