@@ -22,7 +22,8 @@ dayjs.locale('id');
 const updateStatus = require('./utils/updateStatus');
 const startTimerSystem = require('./utils/timerSystem');
 const { log } = require('./utils/logger');
-const startMessageTimer = require('./utils/messageTimer'); // Import the new utility
+const startMessageTimer = require('./utils/messageTimer');
+const { handleInteractionError } = require('./utils/errorHandler');
 
 require('dotenv').config();
 
@@ -126,20 +127,12 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
-            // Defer reply for commands that don't show modals to prevent timeouts.
-            if (command.data.name !== 'login' && command.data.name !== 'lupa_password' && command.data.name !== 'register' && command.data.name !== 'cari_buku') { // Modal commands handle their own reply.
-                await interaction.deferReply();
-            }
+            // Biarkan setiap command mengatur deferReply sendiri jika diperlukan
             await command.execute(interaction, client);
         }
         catch (error) {
             log('ERROR', 'COMMAND_EXEC', `Error menjalankan /${interaction.commandName}: ${error.message}`);
-            const errorMsg = { content: '❌ Terjadi kesalahan saat menjalankan perintah ini!', flags: MessageFlags.Ephemeral };
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp(errorMsg);
-            } else {
-                await interaction.reply(errorMsg);
-            }
+            await handleInteractionError(interaction);
         }
         return;
     }
@@ -199,7 +192,7 @@ client.on('interactionCreate', async interaction => {
                 // Handler untuk persetujuan ulang anggota yang bergabung kembali
                 const adminRoleId = client.config.roles.adminPerpus;
                 if (!interaction.member.roles.cache.has(adminRoleId)) {
-                    return interaction.reply({ content: 'Hanya admin yang bisa menggunakan tombol ini.', ephemeral: true });
+                    return interaction.reply({ content: 'Hanya admin yang bisa menggunakan tombol ini.', flags: MessageFlags.Ephemeral });
                 }
 
                 await interaction.deferUpdate(); // Defer update untuk memberi tahu Discord bahwa interaksi diterima
@@ -214,7 +207,7 @@ client.on('interactionCreate', async interaction => {
                 });
                 if (!targetMember) {
                     log('WARN', 'BUTTON_HANDLER', `Member ${targetId} not found after fetch for action: ${action}`);
-                    return interaction.followUp({ content: 'Anggota tersebut sudah tidak ada di server.', ephemeral: true });
+                    return interaction.followUp({ content: 'Anggota tersebut sudah tidak ada di server.', flags: MessageFlags.Ephemeral });
                 }
                 log('INFO', 'BUTTON_HANDLER', `Successfully fetched member ${targetMember.user.tag} (ID: ${targetId}) for action: ${action}`);
 
@@ -222,7 +215,7 @@ client.on('interactionCreate', async interaction => {
                     const [[userRecord]] = await client.db.query('SELECT tipe_pengguna FROM pengguna WHERE discord_id = ?', [targetId]);
                     if (!userRecord) {
                         await interaction.message.edit({ content: `Gagal menemukan data pengguna untuk ${targetMember.user.tag} di database.`, components: [], embeds: [] });
-                        return interaction.followUp({ content: 'Data pengguna tidak ada di DB.', ephemeral: true });
+                        return interaction.followUp({ content: 'Data pengguna tidak ada di DB.', flags: MessageFlags.Ephemeral });
                     }
 
                     const rolesToAdd = {
@@ -256,11 +249,16 @@ client.on('interactionCreate', async interaction => {
                     }
 
                     await targetMember.kick(`Dikeluarkan oleh ${interaction.user.tag} saat persetujuan ulang.`);
-                    await interaction.message.edit({ content: `👢 ${targetMember.user.tag} telah dikeluarkan oleh ${interaction.user.tag}.`, components: [], embeds: [] });
+                    await interaction.message.edit({ content: `💢 ${targetMember.user.tag} telah dikeluarkan oleh ${interaction.user.tag}.`, components: [], embeds: [] });
                 }
             
             } else if (interaction.customId.startsWith('verify_')) {
                 const command = client.commands.get('register');
+                if (command && command.handleButton) {
+                    return await command.handleButton(interaction, client);
+                }
+            } else if (interaction.customId.startsWith('manage-ebooks_')) {
+                const command = client.commands.get('manage-ebooks');
                 if (command && command.handleButton) {
                     return await command.handleButton(interaction, client);
                 }
@@ -335,11 +333,7 @@ client.on('interactionCreate', async interaction => {
         }
     } catch (error) {
         log('ERROR', 'INTERACTION_HANDLER', `Error pada komponen (${interaction.customId}): ${error.message}\n${error.stack}`);
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: '❌ Terjadi kesalahan saat merespons interaksi ini!', flags: MessageFlags.Ephemeral });
-        } else {
-            await interaction.followUp({ content: '❌ Terjadi kesalahan saat merespons interaksi ini!', flags: MessageFlags.Ephemeral });
-        }
+        await handleInteractionError(interaction);
     }
 });
 
@@ -377,7 +371,8 @@ async function handleBooklistPagination(interaction, client) {
         const bookListMessage = await generateBookListEmbed(client, newPage);
         await interaction.editReply(bookListMessage);
     } catch (error) {
-        log('ERROR', 'BOOKLIST_PAGINATION', `Error handling booklist pagination: ${error.message}`);
+        log('ERROR', 'BOOKLIST_PAGINATION', error.message);
+        await handleInteractionError(interaction);
     }
 }
 
@@ -428,8 +423,8 @@ async function handleSelectEbook(interaction, client) {
 
         await interaction.editReply(replyOptions);
     } catch (error) {
-        log('ERROR', 'SELECT_EBOOK_HANDLER', `Gagal menangani pemilihan e-book: ${error.message}`);
-        await interaction.editReply({ content: '❌ Terjadi kesalahan internal saat mencoba mengambil detail e-book.', flags: MessageFlags.Ephemeral });
+        log('ERROR', 'SELECT_EBOOK_HANDLER', error.message);
+        await handleInteractionError(interaction);
     }
 }
 
