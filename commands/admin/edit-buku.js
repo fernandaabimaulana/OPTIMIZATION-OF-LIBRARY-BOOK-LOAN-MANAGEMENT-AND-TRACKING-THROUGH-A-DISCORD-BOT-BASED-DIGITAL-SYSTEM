@@ -7,6 +7,7 @@ Tujuan: Perintah untuk admin mengedit data buku yang sudah ada.
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const db = require('../../utils/db');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ tambahkan ini
 const fs = require('node:fs');
 const path = require('node:path');
 const axios = require('axios');
@@ -42,7 +43,6 @@ async function saveAttachment(attachment, subfolder) {
     return fileName;
 }
 
-
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('edit_buku')
@@ -67,10 +67,18 @@ module.exports = {
 
         if (focusedOption.name === 'buku') {
             const focusedValue = focusedOption.value;
-            if (!focusedValue) return await interaction.respond([]);
             try {
-                const query = 'SELECT id_buku, nama_buku, mata_pelajaran_terkait FROM buku WHERE nama_buku LIKE ? LIMIT 25';
-                const [rows] = await db.query(query, [`%${focusedValue}%`]);
+                let query;
+                let params;
+                if (focusedValue) {
+                    query = 'SELECT id_buku, nama_buku, mata_pelajaran_terkait FROM buku WHERE nama_buku LIKE ? ORDER BY nama_buku ASC LIMIT 25';
+                    params = [`%${focusedValue}%`];
+                } else {
+                    query = 'SELECT id_buku, nama_buku, mata_pelajaran_terkait FROM buku ORDER BY nama_buku ASC LIMIT 25';
+                    params = [];
+                }
+                
+                const [rows] = await db.query(query, params);
                 await interaction.respond(rows.map(row => ({
                     name: `${row.nama_buku} (Mapel: ${row.mata_pelajaran_terkait})`, 
                     value: row.id_buku.toString()
@@ -167,8 +175,8 @@ module.exports = {
             log('INFO', 'EDIT_BUKU_DB', `Buku ID ${bookId} (${bookBefore.nama_buku}) telah diedit oleh ${interaction.user.tag}.`);
 
         } catch (error) {
-            log('ERROR', 'EDIT_BUKU_DB', `Gagal mengedit buku ID ${bookId}. Error: ${error.message}`);
-            await interaction.editReply({ content: `❌ Terjadi kesalahan: ${error.message}`, flags: MessageFlags.Ephemeral });
+            log('ERROR', 'EDIT_BUKU_DB', error.message);
+            await handleInteractionError(interaction); // ✅ ganti pakai helper
         }
     },
 };
