@@ -57,7 +57,7 @@ async function generateBookListEmbed(client) {
         .setTimestamp();
 
     // 5. Dropdown pilihan buku (untuk lihat detail & pinjam)
-    const selectOptions = rows.map(buku => ({
+    const selectOptions = rows.slice(0, 25).map(buku => ({
         label: buku.nama_buku.slice(0, 100),
         description: `Kelas: ${buku.tingkat_kelas || 'Umum'} | Stok: ${buku.stok_tersedia}/${buku.total_stok}`,
         value: String(buku.id_buku),
