@@ -35,7 +35,7 @@ module.exports = {
 
         } catch (error) {
             log('ERROR', 'POST_BOOKLIST', error.message);
-            await handleInteractionError(interaction, error);
+            await handleInteractionError(interaction);
         }
     },
 };
