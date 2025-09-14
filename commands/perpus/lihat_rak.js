@@ -4,9 +4,10 @@ File: 📁 smanung-library-bot/commands/perpus/lihat_rak.js
 Tujuan: Perintah untuk pengguna melihat foto lokasi rak buku.
 ================================================================================
 */
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const db = require('../../utils/db');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -42,7 +43,7 @@ module.exports = {
     },
 
     async execute(interaction, client) {
-        await interaction.deferReply();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const bookId = interaction.options.getString('buku');
 
@@ -50,18 +51,18 @@ module.exports = {
             const [[book]] = await db.query('SELECT nama_buku, lokasi_rak FROM buku WHERE id_buku = ?', [bookId]);
 
             if (!book) {
-                return interaction.editReply({ content: '❌ Buku tidak ditemukan.', ephemeral: true });
+                return interaction.editReply({ content: '❌ Buku tidak ditemukan.' });
             }
 
             if (!book.lokasi_rak) {
-                return interaction.editReply({ content: `⚠️ Buku "${book.nama_buku}" tidak memiliki foto lokasi rak.`, ephemeral: true });
+                return interaction.editReply({ content: `⚠️ Buku "${book.nama_buku}" tidak memiliki foto lokasi rak.` });
             }
 
             const imagePath = path.join(__dirname, '..', '..', 'public', 'rak', book.lokasi_rak);
 
             if (!fs.existsSync(imagePath)) {
                 log('WARN', 'LIHAT_RAK', `File lokasi rak tidak ditemukan di disk untuk buku ID ${bookId}: ${book.lokasi_rak}`);
-                return interaction.editReply({ content: `❌ Foto lokasi rak untuk buku "${book.nama_buku}" tidak dapat ditemukan. Harap hubungi admin.`, ephemeral: true });
+                return interaction.editReply({ content: `❌ Foto lokasi rak untuk buku "${book.nama_buku}" tidak dapat ditemukan. Harap hubungi admin.` });
             }
 
             const embed = new EmbedBuilder()
@@ -74,7 +75,7 @@ module.exports = {
 
         } catch (error) {
             log('ERROR', 'LIHAT_RAK_EXEC', `Gagal mengambil lokasi rak untuk buku ID ${bookId}. Error: ${error.message}`);
-            await interaction.editReply({ content: '❌ Terjadi kesalahan saat mencoba mengambil data lokasi rak.', ephemeral: true });
+            await handleInteractionError(interaction);
         }
     },
 };

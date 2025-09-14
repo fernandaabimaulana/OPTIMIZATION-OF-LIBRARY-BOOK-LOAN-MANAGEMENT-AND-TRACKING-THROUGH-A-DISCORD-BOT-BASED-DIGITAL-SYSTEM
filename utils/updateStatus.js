@@ -1,13 +1,15 @@
 const { EmbedBuilder } = require('discord.js');
 const db = require('./db');
 const dayjs = require('dayjs');
+require('dayjs/locale/id');
+dayjs.locale('id');
 const { log } = require('./logger');
 
 /**
- * Creates and posts the current book borrowing status to a specified channel.
- * This function is called by cleanupAndPostStatus.
- * @param {import('discord.js').Client} client The Discord client.
- * @param {string} channelId The ID of the channel to post the status to.
+ * Membuat dan memposting status peminjaman buku saat ini ke channel.
+ * Dipanggil oleh cleanupAndPostStatus.
+ * @param {import('discord.js').Client} client - Discord client.
+ * @param {string} channelId - ID channel tujuan.
  */
 async function updateStatus(client, channelId) {
     try {
@@ -19,8 +21,8 @@ async function updateStatus(client, channelId) {
 
         const [peminjaman] = await db.query(`
             SELECT 
-                p.id_peminjaman, p.jumlah_pinjam, p.penanggung_jawab, p.nama_guru_pengajar, p.timestamp_pinjam,
-                b.nama_buku,
+                p.id_peminjaman, p.jumlah_pinjam, p.penanggung_jawab, p.nama_guru_pengajar, p.timestamp_pinjam, p.durasi_pinjam,
+                b.id_buku, b.nama_buku,
                 k.nama_kelas
             FROM peminjaman p
             JOIN buku b ON p.id_buku = b.id_buku
@@ -29,46 +31,46 @@ async function updateStatus(client, channelId) {
             ORDER BY p.timestamp_pinjam ASC
         `);
 
-        if (peminjaman.length > 0) {
-            const header = `**LAPORAN PEMINJAMAN AKTIF**\nTotal **${peminjaman.length}** peminjaman sedang aktif.\n\n`;
-
-            const allPeminjamanStrings = peminjaman.map(p => {
-                const unixTimestamp = dayjs(p.timestamp_pinjam).unix();
-                
-                return `---\n` +
-                       `**${p.nama_buku}** (ID: ${p.id_peminjaman})\n` +
-                       `Peminjam: **${p.penanggung_jawab}** (Kelas: ${p.nama_kelas})\n` +
-                       `Guru: ${p.nama_guru_pengajar || 'N/A'}\n` +
-                       `Jumlah: ${p.jumlah_pinjam} buku\n` +
-                       `Waktu Pinjam: <t:${unixTimestamp}:F>\n` +
-                       `Durasi Pinjam: <t:${unixTimestamp}:R>`;
-            }).join('\n\n');
-
-            const fullDescription = header + allPeminjamanStrings;
-
-            const descriptionChunks = [];
-            for (let i = 0; i < fullDescription.length; i += 4096) {
-                descriptionChunks.push(fullDescription.substring(i, i + 4096));
-            }
-
-            for (let i = 0; i < descriptionChunks.length; i++) {
-                const chunk = descriptionChunks[i];
-                const embed = new EmbedBuilder().setColor(0x0099FF).setDescription(chunk);
-                if (i === 0) {
-                    embed.setTitle('Selamat datang di status peminjaman buku! SMANUNG').setTimestamp().setFooter({ text: 'Status diperbarui secara otomatis.' });
-                }
-                await channel.send({ embeds: [embed] });
-            }
-        } else {
+        if (peminjaman.length === 0) {
             const embed = new EmbedBuilder()
-                .setColor(0x0099FF)
-                .setTitle('Selamat datang di status peminjaman buku! SMANUNG')
-                .setTimestamp()
-                .setFooter({ text: 'Status diperbarui secara otomatis.' })
-                .setDescription('**LAPORAN PEMINJAMAN AKTIF**\nSaat ini tidak ada buku yang sedang dipinjam.');
+                .setColor(0x95a5a6)
+                .setTitle('📚 Status Peminjaman Buku – SMANUNG')
+                .setDescription('Tidak ada peminjaman aktif saat ini.')
+                .setFooter({ text: `Status diperbarui otomatis • ${dayjs().format("HH:mm")}` })
+                .setTimestamp();
+            await channel.send({ embeds: [embed] });
+            return;
+        }
+
+        // Header embed pertama
+        const headerEmbed = new EmbedBuilder()
+            .setColor(0x2ecc71)
+            .setTitle('📚 Status Peminjaman Buku – SMANUNG')
+            .setDescription(`Total **${peminjaman.length}** peminjaman sedang aktif.`)
+            .setFooter({ text: `Status diperbarui otomatis • ${dayjs().format("HH:mm")}` })
+            .setTimestamp();
+        await channel.send({ embeds: [headerEmbed] });
+
+        // Kirim embed per peminjaman
+        for (const p of peminjaman) {
+            const expiryTimestamp = dayjs(p.timestamp_pinjam).add(p.durasi_pinjam, 'minute').unix();
+
+            const embed = new EmbedBuilder()
+                .setColor(0x3498db)
+                .setTitle(`📖 ${p.nama_buku} (ID: ${p.id_buku})`)
+                .addFields(
+                    { name: "👤 Peminjam", value: `${p.penanggung_jawab} (${p.nama_kelas})`, inline: false },
+                    { name: "👨‍🏫 Guru Pengajar", value: p.nama_guru_pengajar || "Tidak ditentukan", inline: true },
+                    { name: "📦 Jumlah", value: `${p.jumlah_pinjam} buku`, inline: true },
+                    { name: "⏰ Waktu Pinjam", value: dayjs(p.timestamp_pinjam).format("dddd, DD MMMM YYYY • HH:mm"), inline: false },
+                    { name: "⌛ Waktu Berakhir", value: p.durasi_pinjam ? `<t:${expiryTimestamp}:R>` : 'Tidak ditentukan', inline: true }
+                )
+                .setTimestamp();
+
             await channel.send({ embeds: [embed] });
         }
-        log('INFO', 'STATUS', `Status peminjaman berhasil dikirim ke channel #${channel.name}.`);
+
+        log('INFO', 'STATUS', `Status peminjaman (${peminjaman.length}) berhasil dikirim ke channel #${channel.name}.`);
 
     } catch (error) {
         log('ERROR', 'STATUS', `Gagal mengirim status peminjaman: ${error.message}\n${error.stack}`);

@@ -9,6 +9,8 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBui
 const path = require('node:path');
 const fs = require('node:fs');
 const startMessageTimer = require('../../utils/messageTimer'); // Import the new utility
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
+const { log } = require('../../utils/logger');
 
 // Helper function to create the detailed embed for a single book
 function createBookEmbed(book) {
@@ -46,14 +48,13 @@ function createBookEmbed(book) {
         );
     }
 
-    const replyOptions = { embeds: [embed], components: [] }; // Removed files array
+    const replyOptions = { embeds: [embed], components: [] };
     if (actionRow.components.length > 0) {
         replyOptions.components.push(actionRow);
     }
 
     return replyOptions;
 }
-
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -65,7 +66,7 @@ module.exports = {
                 .setRequired(true)),
 
     async execute(interaction, client) {
-        await interaction.deferReply();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const query = interaction.options.getString('query');
         const db = client.db;
@@ -127,8 +128,9 @@ module.exports = {
             await startMessageTimer(replyMessage, client, MESSAGE_LIFETIME_MS);
 
         } catch (error) {
-            console.error('Error saat menjalankan /cari_buku:', error);
+            log('ERROR', 'CARI_BUKU', error.message);
             const errorReply = await interaction.editReply({ content: '❌ Terjadi kesalahan saat mencari buku di database.' });
+            await handleInteractionError(interaction);
             await startMessageTimer(errorReply, client, MESSAGE_LIFETIME_MS);
         }
     },

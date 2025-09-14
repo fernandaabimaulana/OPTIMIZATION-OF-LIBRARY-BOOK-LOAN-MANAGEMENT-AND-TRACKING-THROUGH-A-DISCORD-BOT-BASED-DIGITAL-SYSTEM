@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const crypto = require('crypto');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,6 +9,8 @@ module.exports = {
         .setDescription('Memulai proses reset password untuk akun Anda.'),
 
     async execute(interaction, client) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
         log('INFO', 'FORGOT_PASSWORD', `User ${interaction.user.tag} memulai proses lupa password.`);
         const modal = new ModalBuilder()
             .setCustomId('lupa_password_modal')
@@ -73,8 +76,8 @@ module.exports = {
             }
 
         } catch (error) {
-            log('ERROR', 'FORGOT_PASSWORD', `Terjadi kesalahan internal saat proses lupa password untuk email ${email}. Error: ${error.message}`);
-            await interaction.editReply({ content: '❌ Terjadi kesalahan internal saat proses reset password.' });
+            log('ERROR', 'FORGOT_PASSWORD', error.message);
+            await handleInteractionError(interaction);
         }
     }
 };

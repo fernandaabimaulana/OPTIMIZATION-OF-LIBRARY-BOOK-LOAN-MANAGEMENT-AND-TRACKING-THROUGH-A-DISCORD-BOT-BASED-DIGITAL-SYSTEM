@@ -4,7 +4,7 @@ File: 📁 smanung-library-bot/commands/admin/manage-ebooks.js
 Tujuan: Perintah untuk admin mengelola e-book (list, edit, delete).
 ================================================================================
 */
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
 
 const ITEMS_PER_PAGE = 10; // Jumlah e-book per halaman
 
@@ -112,16 +112,15 @@ module.exports = {
         const [, action, currentPageStr] = interaction.customId.split('_');
         let currentPage = parseInt(currentPageStr, 10);
 
-        if (action === 'next') {
-            currentPage++;
-        } else if (action === 'prev') {
-            currentPage--;
-        }
-        await handleListEbooks(interaction, client, currentPage);
+        if (action === 'next') currentPage++;
+        else if (action === 'prev') currentPage--;
+
+        // Panggil handleListEbooks dengan mode tombol
+        await handleListEbooks(interaction, client, currentPage, true);
     },
 
     async handleModalSubmit(interaction, client) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const ebookId = interaction.customId.split('_')[3]; // Corrected index to get the ID
         const judul = interaction.fields.getTextInputValue('edit_judul');
         const penulis = interaction.fields.getTextInputValue('edit_penulis');
@@ -169,14 +168,14 @@ module.exports = {
                     const successEmbed = new EmbedBuilder()
                         .setColor('Green')
                         .setTitle('✅ Penghapusan Berhasil')
-                        .setDescription(`E-book dengan ID **${ebookId}** telah berhasil dihapus.`)
+                        .setDescription(`E-book dengan ID **${ebookId}** telah berhasil dihapus.`) 
                         .setTimestamp();
                     await interaction.editReply({ embeds: [successEmbed], components: [] });
                 } else {
                      const notFoundEmbed = new EmbedBuilder()
                         .setColor('Red')
                         .setTitle('❌ Gagal Hapus')
-                        .setDescription(`Gagal menghapus e-book dengan ID **${ebookId}**. Mungkin ID tidak ditemukan atau sudah dihapus.`)
+                        .setDescription(`Gagal menghapus e-book dengan ID **${ebookId}**. Mungkin ID tidak ditemukan atau sudah dihapus.`) 
                         .setTimestamp();
                     await interaction.editReply({ embeds: [notFoundEmbed], components: [] });
                 }
@@ -201,23 +200,13 @@ module.exports = {
 };
 
 // --- Helper Functions ---
-async function handleListEbooks(interaction, client, page) {
-    // Defer reply only for the initial command, not for button clicks
+
+async function handleListEbooks(interaction, client, page, isButton = false) {
     if (interaction.isCommand()) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     }
-/*
-// --- Helper Functions ---
-async function handleListEbooks(interaction, client, page) {
-    // Defer reply based on interaction type
-    if (interaction.isCommand()) {
-        await interaction.deferReply({ ephemeral: true });
-    } else if (interaction.isButton()) {
-        await interaction.deferUpdate();
-    }
-*/
     const db = client.db;
-    const EBOOK_CHANNEL_ID = '1410599781038030933'; //
+    const EBOOK_CHANNEL_ID = '1410599781038030933';
 
     try {
         const offset = page * ITEMS_PER_PAGE;
@@ -227,13 +216,14 @@ async function handleListEbooks(interaction, client, page) {
 
         const channel = await client.channels.fetch(EBOOK_CHANNEL_ID).catch(() => null);
 
-        // Handle case where there are no ebooks
         if (totalEbooks === 0) {
             if (channel) {
                 try {
                     const messages = await channel.messages.fetch({ limit: 50 });
-                    const botMessage = messages.find(m => m.author.id === client.user.id && m.embeds[0]?.title === '📚 Daftar E-book Perpustakaan');
-                    if (botMessage) await botMessage.delete();
+                    const botMessages = messages.filter(m => m.author.id === client.user.id);
+                    for (const msg of botMessages.values()) {
+                        await msg.delete();
+                    }
                 } catch (e) {
                     console.error(`[WARN] Gagal menghapus pesan lama di channel e-book:`, e.message);
                 }
@@ -243,7 +233,7 @@ async function handleListEbooks(interaction, client, page) {
             }
             return;
         }
-        
+
         const query = `SELECT id, judul, penulis FROM ebooks ORDER BY judul ASC LIMIT ? OFFSET ?`;
         const [results] = await db.query(query, [ITEMS_PER_PAGE, offset]);
 
@@ -279,29 +269,26 @@ async function handleListEbooks(interaction, client, page) {
                     .setStyle(ButtonStyle.Primary)
             );
         }
-        
+
         const messagePayload = { embeds: [embed], components: row.components.length > 0 ? [row] : [] };
 
-        // Send or update the list in the public channel
+        // Update or send the list in the public channel
         if (channel) {
-            try {
-                const messages = await channel.messages.fetch({ limit: 50 });
-                const botMessage = messages.find(m => m.author.id === client.user.id && m.embeds[0]?.title === '📚 Daftar E-book Perpustakaan');
+            const messages = await channel.messages.fetch({ limit: 50 });
+            const botMessages = messages.filter(m => m.author.id === client.user.id);
+            let botMessage = botMessages.first();
 
-                if (botMessage) {
-                    await botMessage.edit(messagePayload);
-                } else {
-                    await channel.send(messagePayload);
-                }
-                
-                if (interaction.isCommand()) {
-                     await interaction.editReply({ content: `✅ Daftar e-book berhasil dikirim dan diperbarui di channel ${channel}.` });
-                }
-            } catch (channelError) {
-                console.error(`[ERROR] Gagal mengirim/mengedit daftar e-book di channel ${EBOOK_CHANNEL_ID}:`, channelError);
-                if (interaction.isCommand()) {
-                    await interaction.editReply({ content: `❌ Gagal mengirim daftar e-book ke channel publik. Silakan cek log dan izin bot.`});
-                }
+            if (botMessage) {
+                await botMessage.edit(messagePayload);
+            } else {
+                await channel.send(messagePayload);
+            }
+
+            // Update pesan tombol jika interaksi dari tombol
+            if (isButton && interaction.isButton()) {
+                await interaction.editReply({ content: null, embeds: [embed], components: row.components.length > 0 ? [row] : [] });
+            } else if (interaction.isCommand()) {
+                await interaction.editReply({ content: `✅ Daftar e-book berhasil dikirim dan diperbarui di channel ${channel}.` });
             }
         } else {
             console.error(`[ERROR] Channel dengan ID ${EBOOK_CHANNEL_ID} tidak ditemukan.`);
@@ -309,7 +296,6 @@ async function handleListEbooks(interaction, client, page) {
                 await interaction.editReply({ content: `❌ Channel e-book tidak ditemukan. Daftar hanya akan ditampilkan di sini.`, ...messagePayload });
             }
         }
-
     } catch (dbError) {
         console.error('Error saat menampilkan daftar e-book:', dbError);
         if (interaction.isCommand() && !interaction.replied) {

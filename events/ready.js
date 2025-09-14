@@ -3,6 +3,8 @@ const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerSta
 const path = require('path');
 const postBookList = require('../utils/postBookList');
 const cleanupAndPostStatus = require('../utils/cleanupAndPost');
+const { updateLeaderboard } = require('../utils/leaderboardUpdater'); // ✅ Tambah import leaderboard
+const { startScheduler } = require('../utils/scheduler');
 const { log } = require('../utils/logger');
 
 module.exports = {
@@ -115,5 +117,16 @@ module.exports = {
         } catch (err) {
             console.error('[BOOKLIST] Gagal mengirim daftar buku:', err);
         }
+
+        // --- Leaderboard Auto Refresh on Startup ---
+        try {
+            await updateLeaderboard(client);
+            log('INFO', 'READY', 'Leaderboard peminjaman buku berhasil diperbarui saat startup.');
+        } catch (err) {
+            log('ERROR', 'READY', `Gagal memperbarui leaderboard saat startup: ${err.message}`);
+        }
+
+        // --- Jalankan Scheduler Pengecekan Keterlambatan ---
+        startScheduler(client);
     },
 }

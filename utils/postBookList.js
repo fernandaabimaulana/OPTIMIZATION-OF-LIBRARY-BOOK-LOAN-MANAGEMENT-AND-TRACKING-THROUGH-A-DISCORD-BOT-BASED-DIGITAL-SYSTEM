@@ -1,104 +1,76 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 
-const BUKU_PER_HALAMAN = 10; // Atur jumlah buku yang ingin ditampilkan per halaman
-
-async function generateBookListEmbed(client, page) {
-    // 1. Ambil total jumlah buku untuk perhitungan halaman
-    const [[{ total_buku }]] = await client.db.query('SELECT COUNT(*) as total_buku FROM buku');
-    const totalHalaman = Math.ceil(total_buku / BUKU_PER_HALAMAN);
-    
-    // Pastikan halaman tidak kurang dari 1 atau lebih dari total halaman
-    const currentPage = Math.max(1, Math.min(page, totalHalaman));
-    
-    // 2. Hitung offset untuk query database
-    const offset = (currentPage - 1) * BUKU_PER_HALAMAN;
-
-    // 3. Ambil data buku untuk halaman saat ini
+async function generateBookListEmbed(client) {
+    // 1. Ambil semua data buku
     const [rows] = await client.db.query(
-        `SELECT nama_buku, mata_pelajaran_terkait, stok_tersedia, total_stok 
-         FROM buku ORDER BY nama_buku ASC LIMIT ? OFFSET ?`,
-        [BUKU_PER_HALAMAN, offset]
+        `SELECT id_buku, nama_buku, mata_pelajaran_terkait, stok_tersedia, total_stok, tingkat_kelas 
+         FROM buku ORDER BY tingkat_kelas ASC, nama_buku ASC`
     );
 
-    // 4. Buat deskripsi embed dari daftar buku
-    const deskripsi = rows.map((buku, index) => {
-        const globalIndex = offset + index + 1;
-        return `**${globalIndex}. ${buku.nama_buku}**\n` +
-               `> **Mapel:** ${buku.mata_pelajaran_terkait || 'Umum'}\n` +
-               `> **Stok:** \`${buku.stok_tersedia} / ${buku.total_stok}\``;
-    }).join('\n\n') || '_Tidak ada buku di halaman ini._';
+    // 2. Kelompokkan berdasarkan tingkat kelas
+    const kelompok = { Umum: [], X: [], XI: [], XII: [] };
+    rows.forEach(buku => {
+        const tingkat = buku.tingkat_kelas?.toUpperCase() || 'Umum';
+        if (!kelompok[tingkat]) kelompok[tingkat] = [];
+        kelompok[tingkat].push(buku);
+    });
 
-    // 5. Buat Embed
+    // 3. Susun tabel per kelompok (pakai monospace code block)
+    const bagian = [];
+    for (const tingkat of ['Umum', 'X', 'XI', 'XII']) {
+        if (kelompok[tingkat].length > 0) {
+            const icon = tingkat === 'Umum' ? '🌐' :
+                         tingkat === 'X'    ? '🟦' :
+                         tingkat === 'XI'   ? '🟩' :
+                         '🟥'; // XII
+
+            // Header tabel
+            const header = "No  | Nama Buku          | Mapel           | Stok\n" +
+                           "----|-------------------|-----------------|------";
+
+            // Isi tabel
+            const rowsTable = kelompok[tingkat].map((buku, idx) => {
+                const no = String(idx + 1).padEnd(3);
+                const nama = buku.nama_buku.padEnd(18);
+                const mapel = (buku.mata_pelajaran_terkait || 'Umum').padEnd(15);
+                const stok = `${buku.stok_tersedia}/${buku.total_stok}`;
+                return `${no} | ${nama} | ${mapel} | ${stok}`;
+            }).join('\n');
+
+            // Bungkus dalam code block
+            const listBuku = "```\n" + header + "\n" + rowsTable + "\n```";
+
+            bagian.push(`### ${icon} Kelas ${tingkat}\n${listBuku}`);
+        }
+    }
+
+    // 4. Buat embed utama
     const embed = new EmbedBuilder()
-        .setColor(0x0099FF)
+        .setColor(0x1D82B6)
         .setTitle('📚 Daftar Buku Perpustakaan SMAN Unggulan')
-        .setDescription(deskripsi)
-        .setFooter({ text: `Halaman ${currentPage} dari ${totalHalaman}` })
+        .setDescription(
+            `👋 Selamat datang di **Perpustakaan Digital SMAN Unggulan**!\n\n` +
+            `Daftar buku dikelompokkan berdasarkan **tingkat kelas** dalam format tabel.\n\n` +
+            bagian.join('\n\n')
+        )
+        .setFooter({ text: 'Gunakan menu di bawah untuk memilih buku.' })
         .setTimestamp();
 
-    // 6. Buat Tombol Navigasi
-    const row = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId(`booklist_prev_${currentPage}`)
-                .setLabel('◀️ Sebelumnya')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(currentPage === 1),
-            new ButtonBuilder()
-                .setCustomId(`booklist_next_${currentPage}`)
-                .setLabel('Selanjutnya ▶️')
-                .setStyle(ButtonStyle.Secondary)
-                .setDisabled(currentPage === totalHalaman || total_buku === 0),
-        );
-        
-    return { embeds: [embed], components: [row], ephemeral: false };
+    // 5. Dropdown pilihan buku (untuk lihat detail & pinjam)
+    const selectOptions = rows.map(buku => ({
+        label: buku.nama_buku.slice(0, 100),
+        description: `Kelas: ${buku.tingkat_kelas || 'Umum'} | Stok: ${buku.stok_tersedia}/${buku.total_stok}`,
+        value: String(buku.id_buku),
+    }));
+
+    const selectRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('select_book_to_view')
+            .setPlaceholder('📖 Pilih buku untuk lihat detail & pinjam...')
+            .addOptions(selectOptions)
+    );
+
+    return { embeds: [embed], components: [selectRow], ephemeral: false };
 }
 
 module.exports = generateBookListEmbed;
-
-
-
-
-/*const { EmbedBuilder } = require('discord.js');
-
-module.exports = async function postBookList(client) {
-    const channelId = '1404563095824896151'; // ID channel daftar buku
-    try {
-        const channel = await client.channels.fetch(channelId);
-        if (!channel) {
-            console.error(`[BOOKLIST] Channel dengan ID ${channelId} tidak ditemukan.`);
-            return;
-        }
-
-        // Ambil data buku dari database
-        const [rows] = await client.db.query(
-            `SELECT nama_buku, penerbit, stok_tersedia, mata_pelajaran_terkait 
-             FROM buku ORDER BY nama_buku ASC`
-        );
-
-        if (!rows.length) {
-            await channel.send('📚 Tidak ada data buku yang tersedia di perpustakaan.');
-            return;
-        }
-
-        // Buat header tabel
-        let table = '```' +
-            '\n| No | Nama Buku                | Mapel        | Stok |' +
-            '\n|----|--------------------------|--------------|------|';
-
-        // Isi data buku
-        rows.forEach((buku, idx) => {
-            table += `\n| ${String(idx + 1).padEnd(2)} | ${buku.nama_buku.padEnd(24)} | ${String(buku.mata_pelajaran_terkait).padEnd(12)} | ${String(buku.stok_tersedia).padEnd(4)} |`;
-        });
-
-        table += '\n```';
-
-        // Kirim ke channel
-        await channel.send({
-            content: `**📚 Daftar Buku Perpustakaan**\nBerikut adalah daftar buku yang tersedia:\n${table}`
-        });
-
-    } catch (err) {
-        console.error('[BOOKLIST] Gagal mengirim daftar buku:', err);
-    }
-};*/

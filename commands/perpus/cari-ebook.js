@@ -5,8 +5,10 @@ Tujuan: Fitur pencarian e-book untuk pengguna dengan rekomendasi dan timer pesan
 Versi: 3.0
 ================================================================================
 */
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, MessageFlags } = require('discord.js');
 const startMessageTimer = require('../../utils/messageTimer'); // Import the new utility
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
+const { log } = require('../../utils/logger');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -15,30 +17,27 @@ module.exports = {
         .addStringOption(option =>
             option.setName('query')
                 .setDescription('Judul e-book, penulis, atau kata kunci untuk dicari.')
-                .setAutocomplete(true) // Mengaktifkan rekomendasi saat pengguna mengetik
+                .setAutocomplete(true)
                 .setRequired(true)),
 
     async autocomplete(interaction, client) {
         const focusedValue = interaction.options.getFocused();
         const db = client.db;
 
-        // Jika input kosong, jangan tampilkan apa-apa
         if (!focusedValue) {
             return await interaction.respond([]);
         }
 
         try {
-            // Cari e-book yang judul atau penulisnya cocok dengan input pengguna
             const query = `
                 SELECT judul, penulis 
                 FROM ebooks 
                 WHERE judul LIKE ? OR penulis LIKE ? 
                 ORDER BY judul ASC 
                 LIMIT 25
-            `; // Batasi hingga 25 hasil (maksimum Discord)
+            `;
             const [results] = await db.query(query, [`${focusedValue}%`, `${focusedValue}%`]);
 
-            // Format hasil untuk ditampilkan sebagai pilihan autocomplete
             const choices = results.map(ebook => {
                 const displayName = `${ebook.judul} (Penulis: ${ebook.penulis || 'N/A'})`;
                 return { name: displayName.substring(0, 100), value: ebook.judul };
@@ -46,13 +45,13 @@ module.exports = {
 
             await interaction.respond(choices);
         } catch (error) {
-            console.error('[AUTOCOMPLETE ERROR] /baca-ebook:', error);
-            await interaction.respond([]); // Kirim array kosong jika terjadi error
+            log('ERROR', 'BACA_EBOOK_AUTOCOMPLETE', error.message);
+            await interaction.respond([]);
         }
     },
 
     async execute(interaction, client) {
-        await interaction.deferReply();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const query = interaction.options.getString('query');
         const db = client.db;
@@ -79,7 +78,7 @@ module.exports = {
                 const noResultReply = await interaction.editReply({
                     embeds: [noResultEmbed]
                 });
-                await startMessageTimer(noResultReply, client, MESSAGE_LIFETIME_MS); // Mulai timer untuk pesan ini
+                await startMessageTimer(noResultReply, client, MESSAGE_LIFETIME_MS);
                 return;
             }
 
@@ -108,10 +107,10 @@ module.exports = {
                 components: [row]
             });
 
-            await startMessageTimer(replyMessage, client, MESSAGE_LIFETIME_MS); // Mulai timer untuk pesan ini
+            await startMessageTimer(replyMessage, client, MESSAGE_LIFETIME_MS);
 
         } catch (error) {
-            console.error('Error saat menjalankan /baca-ebook:', error);
+            log('ERROR', 'BACA_EBOOK', error.message);
             const errorEmbed = new EmbedBuilder()
                 .setColor('Red')
                 .setTitle('❌ Terjadi Kesalahan')
@@ -121,7 +120,8 @@ module.exports = {
             const errorReply = await interaction.editReply({
                 embeds: [errorEmbed]
             });
-            await startMessageTimer(errorReply, client, MESSAGE_LIFETIME_MS); // Mulai timer untuk pesan ini
+            await handleInteractionError(interaction);
+            await startMessageTimer(errorReply, client, MESSAGE_LIFETIME_MS);
         }
     },
 };

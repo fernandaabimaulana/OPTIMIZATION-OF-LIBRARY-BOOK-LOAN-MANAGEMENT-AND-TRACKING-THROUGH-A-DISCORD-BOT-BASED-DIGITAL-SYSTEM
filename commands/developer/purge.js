@@ -1,11 +1,12 @@
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, MessageFlags } = require('discord.js');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('purge')
         .setDescription('Perintah khusus developer untuk menghapus pesan di channel.')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages) // Izin dasar, akan dikunci lebih lanjut
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
         .addChannelOption(option =>
             option.setName('channel')
                 .setDescription('Channel yang akan dibersihkan.')
@@ -27,12 +28,11 @@ module.exports = {
                 .setDescription('BAHAYA: Hapus semua pesan di channel ini.')),
 
     async execute(interaction, client) {
-        // 1. Pengecekan Izin Developer
         if (!interaction.member.roles.cache.has(client.config.roles.developer)) {
-            return interaction.reply({ content: '❌ Perintah ini hanya untuk Developer.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Perintah ini hanya untuk Developer.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const channel = interaction.options.getChannel('channel');
         const amount = interaction.options.getInteger('jumlah');
@@ -41,17 +41,17 @@ module.exports = {
         const deleteAll = interaction.options.getBoolean('hapus_semua');
 
         try {
-            // 2. Logika untuk hapus satu pesan
+            // Hapus satu pesan berdasarkan ID
             if (messageId) {
                 const messageToDelete = await channel.messages.fetch(messageId);
                 await messageToDelete.delete();
                 log('INFO', 'PURGE', `User ${interaction.user.tag} menghapus 1 pesan (ID: ${messageId}) di #${channel.name}.`);
-                return interaction.editReply(`✅ Berhasil menghapus 1 pesan dengan ID ​${messageId}​.`);
+                return interaction.editReply({ content: `✅ Berhasil menghapus 1 pesan dengan ID ​${messageId}​.`, flags: MessageFlags.Ephemeral });
             }
 
-            // 3. Logika untuk hapus semua pesan
+            // Hapus semua pesan di channel
             if (deleteAll) {
-                interaction.editReply(`⌛ Memulai proses penghapusan **semua** pesan di channel ${channel}. Ini mungkin butuh waktu lama...`);
+                await interaction.editReply({ content: `⌛ Memulai proses penghapusan **semua** pesan di channel ${channel}. Ini mungkin butuh waktu lama...`, flags: MessageFlags.Ephemeral });
                 let deletedCount = 0;
                 let isDone = false;
                 while (!isDone) {
@@ -61,7 +61,7 @@ module.exports = {
                         break;
                     }
 
-                    const twoWeeksAgo = Date.now() - 1209600000; // 14 hari dalam milidetik
+                    const twoWeeksAgo = Date.now() - 1209600000;
                     const bulkDeletable = messages.filter(m => m.createdTimestamp > twoWeeksAgo);
                     const individuallyDeletable = messages.filter(m => m.createdTimestamp <= twoWeeksAgo);
 
@@ -74,20 +74,18 @@ module.exports = {
                         await message.delete();
                         deletedCount++;
                     }
-                    
+
                     if (individuallyDeletable.size > 0 && bulkDeletable.size === 0 && messages.size > 0) {
-                        // Jika semua pesan yang diambil lebih tua dari 14 hari, proses akan sangat lambat.
-                        // Beri tahu user.
                         channel.send(`> Proses penghapusan pesan-pesan lama sedang berjalan... ${deletedCount} pesan telah dihapus.`).then(msg => setTimeout(() => msg.delete(), 5000));
                     }
 
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // Jeda untuk menghindari rate limit
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
                 log('WARN', 'PURGE', `User ${interaction.user.tag} MENGHAPUS SEMUA (${deletedCount}) PESAN di #${channel.name}.`);
-                return interaction.followUp({ content: `✅ Selesai! Berhasil menghapus total ${deletedCount} pesan dari channel ${channel}.`, ephemeral: true });
+                return interaction.followUp({ content: `✅ Selesai! Berhasil menghapus total ${deletedCount} pesan dari channel ${channel}.`, flags: MessageFlags.Ephemeral });
             }
 
-            // 4. Logika untuk hapus massal (dengan filter pengguna opsional)
+            // Hapus massal dengan filter pengguna opsional
             if (amount) {
                 let messages = await channel.messages.fetch({ limit: amount });
                 if (user) {
@@ -96,20 +94,20 @@ module.exports = {
 
                 const deleted = await channel.bulkDelete(messages, true);
                 log('INFO', 'PURGE', `User ${interaction.user.tag} menghapus ${deleted.size} pesan di #${channel.name}.`);
-                return interaction.editReply(`✅ Berhasil menghapus ${deleted.size} pesan dari channel ${channel}.`);
+                return interaction.editReply({ content: `✅ Berhasil menghapus ${deleted.size} pesan dari channel ${channel}.`, flags: MessageFlags.Ephemeral });
             }
 
-            return interaction.editReply('⚠️ Anda harus memilih salah satu opsi: `jumlah`, `id_pesan`, atau `hapus_semua`.');
+            return interaction.editReply({ content: '⚠️ Anda harus memilih salah satu opsi: `jumlah`, `id_pesan`, atau `hapus_semua`.', flags: MessageFlags.Ephemeral });
 
         } catch (err) {
             log('ERROR', 'PURGE', `Gagal menghapus pesan di #${channel.name}: ${err.message}`);
-            if (err.code === 10008) { // Unknown Message
-                 return interaction.editReply('❌ Gagal: Pesan tidak ditemukan. Mungkin sudah dihapus atau ID salah.');
+            if (err.code === 10008) {
+                return interaction.editReply({ content: '❌ Gagal: Pesan tidak ditemukan. Mungkin sudah dihapus atau ID salah.', flags: MessageFlags.Ephemeral });
             }
-            if (err.code === 50034) { // Cannot delete messages older than 14 days
-                return interaction.editReply('❌ Gagal: Anda tidak bisa menghapus pesan yang lebih tua dari 14 hari secara massal dengan opsi `jumlah`. Coba kurangi `jumlah` atau gunakan opsi `hapus_semua`.');
+            if (err.code === 50034) {
+                return interaction.editReply({ content: '❌ Gagal: Anda tidak bisa menghapus pesan yang lebih tua dari 14 hari secara massal dengan opsi `jumlah`. Coba kurangi `jumlah` atau gunakan opsi `hapus_semua`.', flags: MessageFlags.Ephemeral });
             }
-            return interaction.editReply('❌ Terjadi kesalahan saat mencoba menghapus pesan.');
+            await handleInteractionError(interaction);
         }
     },
 };

@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionsBitField, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 const db = require('../../utils/db');
 const { log } = require('../../utils/logger');
 
@@ -97,15 +98,16 @@ module.exports = {
                 }));
             }
         } catch (error) {
-            log('ERROR', 'JADWAL_AUTOCOMPLETE', `Error: ${error.message}`);
+            log('ERROR', 'JADWAL_AUTOCOMPLETE', error.message);
         }
 
         await interaction.respond(choices);
     },
 
     async execute(interaction, client) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // ✅ Tambah di awal
         if (!interaction.member.roles.cache.has(client.config.roles.adminPerpus)) {
-            return interaction.reply({ content: '❌ Anda tidak memiliki peran yang tepat untuk menggunakan perintah ini.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Anda tidak memiliki peran yang tepat untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
         }
 
         const subcommand = interaction.options.getSubcommand();
@@ -127,180 +129,192 @@ module.exports = {
                     break;
             }
         } catch (error) {
-            log('ERROR', `JADWAL_${subcommand.toUpperCase()}` ,`Error executing /jadwal ${subcommand}: ${error.message}`);
-            if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({ content: '❌ Terjadi kesalahan internal saat memproses perintah Anda.', ephemeral: true });
-            } else {
-                await interaction.editReply({ content: '❌ Terjadi kesalahan internal saat memproses perintah Anda.' });
-            }
+            log('ERROR', 'JADWAL_COMMAND', error.message);
+            await handleInteractionError(interaction);
         }
     },
 
     async handleView(interaction, db) {
-        await interaction.deferReply({ ephemeral: true });
-        const filters = {
-            hari: interaction.options.getString('hari'),
-            kelas: interaction.options.getString('kelas'),
-            guru: interaction.options.getString('guru'),
-            mapel: interaction.options.getString('mapel'),
-        };
+        // Proses sudah di-defer di execute
+        try {
+            const filters = {
+                hari: interaction.options.getString('hari'),
+                kelas: interaction.options.getString('kelas'),
+                guru: interaction.options.getString('guru'),
+                mapel: interaction.options.getString('mapel'),
+            };
 
-        let query = 'SELECT j.id_jadwal, j.hari, j.jam_mulai, j.jam_selesai, j.mata_pelajaran, j.nama_guru, k.nama_kelas FROM jadwal j JOIN kelas k ON j.id_kelas = k.id_kelas';
-        const whereClauses = [];
-        const queryParams = [];
+            let query = 'SELECT j.id_jadwal, j.hari, j.jam_mulai, j.jam_selesai, j.mata_pelajaran, j.nama_guru, k.nama_kelas FROM jadwal j JOIN kelas k ON j.id_kelas = k.id_kelas';
+            const whereClauses = [];
+            const queryParams = [];
 
-        if (filters.hari) { whereClauses.push('j.hari = ?'); queryParams.push(filters.hari); }
-        if (filters.kelas) { whereClauses.push('k.nama_kelas = ?'); queryParams.push(filters.kelas); }
-        if (filters.guru) { whereClauses.push('j.nama_guru = ?'); queryParams.push(filters.guru); }
-        if (filters.mapel) { whereClauses.push('j.mata_pelajaran = ?'); queryParams.push(filters.mapel); }
+            if (filters.hari) { whereClauses.push('j.hari = ?'); queryParams.push(filters.hari); }
+            if (filters.kelas) { whereClauses.push('k.nama_kelas = ?'); queryParams.push(filters.kelas); }
+            if (filters.guru) { whereClauses.push('j.nama_guru = ?'); queryParams.push(filters.guru); }
+            if (filters.mapel) { whereClauses.push('j.mata_pelajaran = ?'); queryParams.push(filters.mapel); }
 
-        if (whereClauses.length > 0) {
-            query += ' WHERE ' + whereClauses.join(' AND ');
+            if (whereClauses.length > 0) {
+                query += ' WHERE ' + whereClauses.join(' AND ');
+            }
+            query += ' ORDER BY j.hari, j.jam_mulai LIMIT 25';
+
+            const [results] = await db.query(query, queryParams);
+
+            if (results.length === 0) {
+                return interaction.editReply({ content: 'Tidak ada data jadwal yang cocok dengan filter Anda.' });
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('🗓️ Hasil Pencarian Jadwal')
+                .setColor(0x3498db)
+                .setTimestamp();
+
+            let description = '';
+            results.forEach(r => {
+                description += `**ID: ${r.id_jadwal}** | ${r.hari}, ${r.jam_mulai.substring(0, 5)}-${r.jam_selesai.substring(0, 5)} | **${r.nama_kelas}** | ${r.mata_pelajaran} (${r.nama_guru})\n`;
+            });
+
+            embed.setDescription(description);
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            log('ERROR', 'JADWAL_VIEW', error.message);
+            await handleInteractionError(interaction);
         }
-        query += ' ORDER BY j.hari, j.jam_mulai LIMIT 25';
-
-        const [results] = await db.query(query, queryParams);
-
-        if (results.length === 0) {
-            return interaction.editReply({ content: 'Tidak ada data jadwal yang cocok dengan filter Anda.' });
-        }
-
-        const embed = new EmbedBuilder()
-            .setTitle('🗓️ Hasil Pencarian Jadwal')
-            .setColor(0x3498db)
-            .setTimestamp();
-
-        let description = '';
-        results.forEach(r => {
-            description += `**ID: ${r.id_jadwal}** | ${r.hari}, ${r.jam_mulai.substring(0, 5)}-${r.jam_selesai.substring(0, 5)} | **${r.nama_kelas}** | ${r.mata_pelajaran} (${r.nama_guru})\n`;
-        });
-
-        embed.setDescription(description);
-        await interaction.editReply({ embeds: [embed] });
     },
 
     async handleAdd(interaction, db) {
-        await interaction.deferReply({ ephemeral: true });
-        const kelasNama = interaction.options.getString('kelas');
-        const [kelasRows] = await db.query('SELECT id_kelas FROM kelas WHERE nama_kelas = ?', [kelasNama]);
-        if (kelasRows.length === 0) {
-            return interaction.editReply({ content: `❌ Kelas dengan nama "${kelasNama}" tidak ditemukan.` });
+        try {
+            const kelasNama = interaction.options.getString('kelas');
+            const [kelasRows] = await db.query('SELECT id_kelas FROM kelas WHERE nama_kelas = ?', [kelasNama]);
+            if (kelasRows.length === 0) {
+                return interaction.editReply({ content: `❌ Kelas dengan nama "${kelasNama}" tidak ditemukan.` });
+            }
+            const id_kelas = kelasRows[0].id_kelas;
+
+            const newEntry = {
+                id_kelas,
+                hari: interaction.options.getString('hari'),
+                jam_mulai: interaction.options.getString('jam_mulai'),
+                jam_selesai: interaction.options.getString('jam_selesai'),
+                mata_pelajaran: interaction.options.getString('mapel'),
+                nama_guru: interaction.options.getString('guru'),
+            };
+
+            await db.query('INSERT INTO jadwal SET ?', newEntry);
+            await interaction.editReply({ content: '✅ Entri jadwal baru berhasil ditambahkan.' });
+        } catch (error) {
+            log('ERROR', 'JADWAL_ADD', error.message);
+            await handleInteractionError(interaction);
         }
-        const id_kelas = kelasRows[0].id_kelas;
-
-        const newEntry = {
-            id_kelas,
-            hari: interaction.options.getString('hari'),
-            jam_mulai: interaction.options.getString('jam_mulai'),
-            jam_selesai: interaction.options.getString('jam_selesai'),
-            mata_pelajaran: interaction.options.getString('mapel'),
-            nama_guru: interaction.options.getString('guru'),
-        };
-
-        await db.query('INSERT INTO jadwal SET ?', newEntry);
-        await interaction.editReply({ content: '✅ Entri jadwal baru berhasil ditambahkan.' });
     },
 
     async handleUpdate(interaction, db) {
-        await interaction.deferReply({ ephemeral: true });
-        const id_jadwal = interaction.options.getString('id_jadwal');
-        const updates = {};
-        
-        if (interaction.options.getString('hari_baru')) updates.hari = interaction.options.getString('hari_baru');
-        if (interaction.options.getString('jam_mulai_baru')) updates.jam_mulai = interaction.options.getString('jam_mulai_baru');
-        if (interaction.options.getString('jam_selesai_baru')) updates.jam_selesai = interaction.options.getString('jam_selesai_baru');
-        if (interaction.options.getString('mapel_baru')) updates.mata_pelajaran = interaction.options.getString('mapel_baru');
-        if (interaction.options.getString('guru_baru')) updates.nama_guru = interaction.options.getString('guru_baru');
+        try {
+            const id_jadwal = interaction.options.getString('id_jadwal');
+            const updates = {};
+            
+            if (interaction.options.getString('hari_baru')) updates.hari = interaction.options.getString('hari_baru');
+            if (interaction.options.getString('jam_mulai_baru')) updates.jam_mulai = interaction.options.getString('jam_mulai_baru');
+            if (interaction.options.getString('jam_selesai_baru')) updates.jam_selesai = interaction.options.getString('jam_selesai_baru');
+            if (interaction.options.getString('mapel_baru')) updates.mata_pelajaran = interaction.options.getString('mapel_baru');
+            if (interaction.options.getString('guru_baru')) updates.nama_guru = interaction.options.getString('guru_baru');
 
-        const kelasNamaBaru = interaction.options.getString('kelas_baru');
-        if (kelasNamaBaru) {
-            const [kelasRows] = await db.query('SELECT id_kelas FROM kelas WHERE nama_kelas = ?', [kelasNamaBaru]);
-            if (kelasRows.length === 0) {
-                return interaction.editReply({ content: `❌ Kelas baru "${kelasNamaBaru}" tidak ditemukan.` });
+            const kelasNamaBaru = interaction.options.getString('kelas_baru');
+            if (kelasNamaBaru) {
+                const [kelasRows] = await db.query('SELECT id_kelas FROM kelas WHERE nama_kelas = ?', [kelasNamaBaru]);
+                if (kelasRows.length === 0) {
+                    return interaction.editReply({ content: `❌ Kelas baru "${kelasNamaBaru}" tidak ditemukan.` });
+                }
+                updates.id_kelas = kelasRows[0].id_kelas;
             }
-            updates.id_kelas = kelasRows[0].id_kelas;
-        }
 
-        if (Object.keys(updates).length === 0) {
-            return interaction.editReply({ content: 'Anda harus menyediakan setidaknya satu field untuk diperbarui.' });
-        }
+            if (Object.keys(updates).length === 0) {
+                return interaction.editReply({ content: 'Anda harus menyediakan setidaknya satu field untuk diperbarui.' });
+            }
 
-        const [result] = await db.query('UPDATE jadwal SET ? WHERE id_jadwal = ?', [updates, id_jadwal]);
-        if (result.affectedRows === 0) {
-            return interaction.editReply({ content: `❌ Jadwal dengan ID ${id_jadwal} tidak ditemukan.` });
-        }
+            const [result] = await db.query('UPDATE jadwal SET ? WHERE id_jadwal = ?', [updates, id_jadwal]);
+            if (result.affectedRows === 0) {
+                return interaction.editReply({ content: `❌ Jadwal dengan ID ${id_jadwal} tidak ditemukan.` });
+            }
 
-        await interaction.editReply({ content: `✅ Jadwal dengan ID ${id_jadwal} berhasil diperbarui.` });
+            await interaction.editReply({ content: `✅ Jadwal dengan ID ${id_jadwal} berhasil diperbarui.` });
+        } catch (error) {
+            log('ERROR', 'JADWAL_UPDATE', error.message);
+            await handleInteractionError(interaction);
+        }
     },
 
     async handleDelete(interaction, db, client) {
-        const idJadwal = interaction.options.getString('id_jadwal');
-        const deleteAll = interaction.options.getBoolean('delete_all');
+        try {
+            const idJadwal = interaction.options.getString('id_jadwal');
+            const deleteAll = interaction.options.getBoolean('delete_all');
 
-        if (!idJadwal && !deleteAll) {
-            return interaction.reply({ content: '❌ Anda harus memilih `id_jadwal` untuk menghapus satu jadwal, atau `delete_all: True` untuk menghapus semua.', ephemeral: true });
-        }
-
-        if (idJadwal && deleteAll) {
-            return interaction.reply({ content: '❌ Anda tidak dapat menggunakan `id_jadwal` dan `delete_all` secara bersamaan.', ephemeral: true });
-        }
-
-        await interaction.deferReply({ ephemeral: true });
-
-        if (idJadwal) {
-            const [result] = await db.query('DELETE FROM jadwal WHERE id_jadwal = ?', [idJadwal]);
-            if (result.affectedRows > 0) {
-                log('INFO', 'JADWAL_DELETE', `Admin ${interaction.user.tag} menghapus jadwal dengan ID: ${idJadwal}.`);
-                await interaction.editReply({ content: `✅ Jadwal dengan ID **${idJadwal}** berhasil dihapus.` });
-            } else {
-                await interaction.editReply({ content: `⚠️ Jadwal dengan ID **${idJadwal}** tidak ditemukan.` });
+            if (!idJadwal && !deleteAll) {
+                return interaction.editReply({ content: '❌ Anda harus memilih `id_jadwal` untuk menghapus satu jadwal, atau `delete_all: True` untuk menghapus semua.' });
             }
-        } else if (deleteAll) {
-            const confirmId = `confirm_delete_all_jadwal_${Date.now()}`;
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(confirmId)
-                        .setLabel('Ya, Hapus Semua Jadwal')
-                        .setStyle(ButtonStyle.Danger)
-                        .setEmoji('🗑️'),
-                );
 
-            const embed = new EmbedBuilder()
-                .setColor('Red')
-                .setTitle('Konfirmasi Penghapusan Massal')
-                .setDescription('**PERINGATAN!** Anda akan menghapus **SEMUA** data jadwal pelajaran. Tindakan ini tidak dapat diurungkan.\n\nApakah Anda benar-benar yakin ingin melanjutkan?');
+            if (idJadwal && deleteAll) {
+                return interaction.editReply({ content: '❌ Anda tidak dapat menggunakan `id_jadwal` dan `delete_all` secara bersamaan.' });
+            }
 
-            await interaction.editReply({ embeds: [embed], components: [row], ephemeral: true });
-
-            const filter = i => i.customId === confirmId && i.user.id === interaction.user.id;
-            try {
-                const confirmation = await interaction.channel.awaitMessageComponent({ filter, time: 60_000 });
-
-                await confirmation.deferUpdate();
-
-                await db.query('TRUNCATE TABLE jadwal');
-                log('WARN', 'JADWAL_DELETE_ALL', `Admin ${interaction.user.tag} menghapus SEMUA jadwal pelajaran.`);
-                
-                const successEmbed = new EmbedBuilder()
-                    .setColor('Green')
-                    .setTitle('✅ Berhasil')
-                    .setDescription('Semua data jadwal pelajaran telah berhasil dihapus.');
-
-                await confirmation.editReply({ embeds: [successEmbed], components: [] });
-
-            } catch (err) {
-                if (err.code === 'InteractionCollectorError') {
-                    const timeoutEmbed = new EmbedBuilder()
-                        .setColor('Grey')
-                        .setTitle('Waktu Habis')
-                        .setDescription('Konfirmasi tidak diberikan dalam 1 menit. Penghapusan massal dibatalkan.');
-                    await interaction.editReply({ embeds: [timeoutEmbed], components: [] });
+            if (idJadwal) {
+                const [result] = await db.query('DELETE FROM jadwal WHERE id_jadwal = ?', [idJadwal]);
+                if (result.affectedRows > 0) {
+                    log('INFO', 'JADWAL_DELETE', `Admin ${interaction.user.tag} menghapus jadwal dengan ID: ${idJadwal}.`);
+                    await interaction.editReply({ content: `✅ Jadwal dengan ID **${idJadwal}** berhasil dihapus.` });
                 } else {
-                    log('ERROR', 'JADWAL_DELETE_ALL', `Error saat konfirmasi hapus semua jadwal: ${err.message}`);
-                    throw err;
+                    await interaction.editReply({ content: `⚠️ Jadwal dengan ID **${idJadwal}** tidak ditemukan.` });
+                }
+            } else if (deleteAll) {
+                const confirmId = `confirm_delete_all_jadwal_${Date.now()}`;
+                const row = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(confirmId)
+                            .setLabel('Ya, Hapus Semua Jadwal')
+                            .setStyle(ButtonStyle.Danger)
+                            .setEmoji('🗑️'),
+                    );
+
+                const embed = new EmbedBuilder()
+                    .setColor('Red')
+                    .setTitle('Konfirmasi Penghapusan Massal')
+                    .setDescription('**PERINGATAN!** Anda akan menghapus **SEMUA** data jadwal pelajaran. Tindakan ini tidak dapat diurungkan.\n\nApakah Anda benar-benar yakin ingin melanjutkan?');
+
+                await interaction.editReply({ embeds: [embed], components: [row] });
+
+                const filter = i => i.customId === confirmId && i.user.id === interaction.user.id;
+                try {
+                    const confirmation = await interaction.channel.awaitMessageComponent({ filter, time: 60_000 });
+
+                    await confirmation.deferUpdate();
+
+                    await db.query('TRUNCATE TABLE jadwal');
+                    log('WARN', 'JADWAL_DELETE_ALL', `Admin ${interaction.user.tag} menghapus SEMUA jadwal pelajaran.`);
+                    
+                    const successEmbed = new EmbedBuilder()
+                        .setColor('Green')
+                        .setTitle('✅ Berhasil')
+                        .setDescription('Semua data jadwal pelajaran telah berhasil dihapus.');
+
+                    await interaction.editReply({ embeds: [successEmbed], components: [] });
+
+                } catch (err) {
+                    if (err.code === 'InteractionCollectorError') {
+                        const timeoutEmbed = new EmbedBuilder()
+                            .setColor('Grey')
+                            .setTitle('Waktu Habis')
+                            .setDescription('Konfirmasi tidak diberikan dalam 1 menit. Penghapusan massal dibatalkan.');
+                        await interaction.editReply({ embeds: [timeoutEmbed], components: [] });
+                    } else {
+                        log('ERROR', 'JADWAL_DELETE_ALL', err.message);
+                        await handleInteractionError(interaction);
+                    }
                 }
             }
+        } catch (error) {
+            log('ERROR', 'JADWAL_DELETE', error.message);
+            await handleInteractionError(interaction);
         }
     },
 };

@@ -1,4 +1,6 @@
 const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
+const { log } = require('../../utils/logger');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -17,10 +19,10 @@ module.exports = {
     async execute(interaction, client) {
         // Kunci perintah ini hanya untuk Developer
         if (!interaction.member.roles.cache.has(client.config.roles.developer)) {
-            return interaction.reply({ content: '❌ Perintah ini hanya untuk Developer.', flags: MessageFlags.Ephemeral });
+            return interaction.editReply({ content: '❌ Perintah ini hanya untuk Developer.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const targetUser = interaction.options.getMember('user');
         const role = interaction.options.getRole('role');
@@ -38,12 +40,8 @@ module.exports = {
             await targetUser.roles.remove(role);
             await interaction.editReply({ content: `✅ Berhasil menghapus role **${role.name}** dari **${targetUser.user.username}**.` });
         } catch (error) {
-            console.error(error);
-            if (error.code === 50013) { // Missing Permissions
-                await interaction.editReply({ content: 'Terjadi kesalahan: **Missing Permissions**. Pastikan role bot lebih tinggi dari role yang akan dihapus.' });
-            } else {
-                await interaction.editReply({ content: 'Terjadi kesalahan saat mencoba menghapus role.' });
-            }
+            log('ERROR', 'REMOVE_ROLE', error.message);
+            await handleInteractionError(interaction);
         }
     },
 };

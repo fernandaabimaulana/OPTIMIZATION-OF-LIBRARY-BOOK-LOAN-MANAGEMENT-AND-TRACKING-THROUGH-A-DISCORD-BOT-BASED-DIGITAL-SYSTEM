@@ -2,6 +2,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, MessageFlags, ButtonBuilder, ButtonStyle } = require('discord.js');
 const crypto = require('crypto');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,49 +10,60 @@ module.exports = {
         .setDescription('Mendaftarkan diri Anda sebagai siswa, guru, atau admin perpustakaan.'),
 
     async execute(interaction, client) {
-        log('INFO', 'REGISTER', `User ${interaction.user.tag} memulai proses registrasi.`);
-        const selectMenu = new ActionRowBuilder()
-            .addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('register_role_select')
-                    .setPlaceholder('Pilih peran Anda...')
-                    .addOptions([
-                        { label: 'Siswa', description: 'Daftar sebagai siswa', value: 'siswa' },
-                        { label: 'Guru', description: 'Daftar sebagai guru', value: 'guru' },
-                    ]),
-            );
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            log('INFO', 'REGISTER', `User ${interaction.user.tag} memulai proses registrasi.`);
+            const selectMenu = new ActionRowBuilder()
+                .addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('register_role_select')
+                        .setPlaceholder('Pilih peran Anda...')
+                        .addOptions([
+                            { label: 'Siswa', description: 'Daftar sebagai siswa', value: 'siswa' },
+                            { label: 'Guru', description: 'Daftar sebagai guru', value: 'guru' },
+                        ]),
+                );
 
-        await interaction.reply({
-            content: 'Silakan pilih peran Anda untuk memulai proses pendaftaran.',
-            components: [selectMenu],
-            flags: MessageFlags.Ephemeral,
-        });
+            await interaction.editReply({
+                content: 'Silakan pilih peran Anda untuk memulai proses pendaftaran.',
+                components: [selectMenu],
+                flags: MessageFlags.Ephemeral,
+            });
+        } catch (error) {
+            log('ERROR', 'REGISTER', error.message);
+            await handleInteractionError(interaction);
+        }
     },
 
     async handleSelectMenu(interaction, client) {
-        const role = interaction.values[0];
-        log('INFO', 'REGISTER', `User ${interaction.user.tag} memilih peran '${role}'. Menampilkan modal.`);
-        
-        const idInputLabel = role === 'siswa' ? "Nomor Induk Siswa (NIS)" : "Nomor Induk Pegawai (NIP)";
-        const idInputCustomId = role === 'siswa' ? "nis_input" : "nip_input";
+        try {
+            const role = interaction.values[0];
+            log('INFO', 'REGISTER', `User ${interaction.user.tag} memilih peran '${role}'. Menampilkan modal.`);
+            
+            const idInputLabel = role === 'siswa' ? "Nomor Induk Siswa Nasional (NISN)" : "Nomor Induk Pegawai (NIP)";
+            const idInputCustomId = role === 'siswa' ? "nis_input" : "nip_input";
 
-        const modal = new ModalBuilder()
-            .setCustomId(`register_modal_${role}`)
-            .setTitle(`Form Pendaftaran - ${role.charAt(0).toUpperCase() + role.slice(1)}`);
+            const modal = new ModalBuilder()
+                .setCustomId(`register_modal_${role}`)
+                .setTitle(`Form Pendaftaran - ${role.charAt(0).toUpperCase() + role.slice(1)}`);
 
-        const idInput = new TextInputBuilder().setCustomId(idInputCustomId).setLabel(idInputLabel).setStyle(TextInputStyle.Short).setRequired(true);
-        const namaInput = new TextInputBuilder().setCustomId('nama_input').setLabel("Nama Lengkap").setStyle(TextInputStyle.Short).setRequired(true);
-        const emailInput = new TextInputBuilder().setCustomId('email_input').setLabel("Email Aktif").setStyle(TextInputStyle.Short).setRequired(true);
-        const passwordInput = new TextInputBuilder().setCustomId('password_input').setLabel("Password").setStyle(TextInputStyle.Short).setRequired(true);
+            const idInput = new TextInputBuilder().setCustomId(idInputCustomId).setLabel(idInputLabel).setStyle(TextInputStyle.Short).setRequired(true);
+            const namaInput = new TextInputBuilder().setCustomId('nama_input').setLabel("Nama Lengkap").setStyle(TextInputStyle.Short).setRequired(true);
+            const emailInput = new TextInputBuilder().setCustomId('email_input').setLabel("Email Aktif").setStyle(TextInputStyle.Short).setRequired(true);
+            const passwordInput = new TextInputBuilder().setCustomId('password_input').setLabel("Password").setStyle(TextInputStyle.Short).setRequired(true);
 
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(idInput),
-            new ActionRowBuilder().addComponents(namaInput),
-            new ActionRowBuilder().addComponents(emailInput),
-            new ActionRowBuilder().addComponents(passwordInput)
-        );
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(idInput),
+                new ActionRowBuilder().addComponents(namaInput),
+                new ActionRowBuilder().addComponents(emailInput),
+                new ActionRowBuilder().addComponents(passwordInput)
+            );
 
-        await interaction.showModal(modal);
+            await interaction.showModal(modal);
+        } catch (error) {
+            log('ERROR', 'REGISTER_SELECTMENU', error.message);
+            await handleInteractionError(interaction);
+        }
     },
 
     async handleModalSubmit(interaction, client) {
@@ -105,7 +117,6 @@ module.exports = {
                 log('INFO', 'REGISTER_ROLE', `Role 'Belum Terdaftar' berhasil diberikan kepada ${interaction.user.tag}.`);
             } catch (roleError) {
                 log('ERROR', 'REGISTER_ROLE', `Gagal memberikan role 'Belum Terdaftar' untuk ${interaction.user.tag}. Error: ${roleError.message}`);
-                // This is not a critical error, but we should log it.
             }
 
             // Notify admins for verification
@@ -135,7 +146,7 @@ module.exports = {
                 );
 
             try {
-                const logChannel = await client.channels.fetch('1410599781343957101'); // Changed to specific channel ID
+                const logChannel = await client.channels.fetch('1410599781343957101');
                 if (logChannel) {
                     await logChannel.send({ embeds: [verificationEmbed], components: [verificationButtons] });
                     log('INFO', 'REGISTER_NOTIFY', `Notifikasi verifikasi untuk ${interaction.user.tag} telah dikirim ke channel log.`);
@@ -155,9 +166,9 @@ Akun Anda sekarang sedang menunggu persetujuan dari Admin. Anda akan menerima no
             await interaction.editReply({ embeds: [successEmbed] });
             log('INFO', 'REGISTER', `Registrasi untuk ${interaction.user.tag} (Email: ${email}) selesai dengan sukses.`);
 
-             // --- AWAL TAMBAHAN: Kunci channel registrasi ---
+            // --- AWAL TAMBAHAN: Kunci channel registrasi ---
             try {
-                const registerChannelId = '1410599781038030936'; // ID channel #register-akun
+                const registerChannelId = '1410599781038030936';
                 const registerChannel = await interaction.guild.channels.fetch(registerChannelId);
                 if (registerChannel) {
                     await registerChannel.permissionOverwrites.edit(interaction.user.id, {
@@ -167,27 +178,19 @@ Akun Anda sekarang sedang menunggu persetujuan dari Admin. Anda akan menerima no
                 }
             } catch (permError) {
                 log('ERROR', 'REGISTER_LOCK', `Gagal menyembunyikan channel registrasi untuk ${interaction.user.tag}. Error: ${permError.message}`);
-                // Gagal mengubah izin bukan masalah kritis, cukup catat di log.
             }
             // --- AKHIR TAMBAHAN ---
 
         } catch (error) {
             await db.query('ROLLBACK');
             log('ERROR', 'REGISTER_DB', `Error saat registrasi untuk email ${email}. Error: ${error.message}`);
-            
-            if (error.code === 'ER_DUP_ENTRY') {
-                return interaction.editReply({ content: `❌ Gagal mendaftar. Akun Discord ini '${idNumber}' sudah digunakan, silahkan login dengan mengetik "/login"` });
-            }
-            
-            await interaction.editReply({ content: '❌ Terjadi kesalahan pada database. Hubungi admin jika masalah berlanjut.' });
+            await handleInteractionError(interaction);
         }
     },
 
     async handleButton(interaction, client) {
         const [action, targetUserId] = interaction.customId.split('_').slice(1);
         const adminMember = interaction.member;
-
-        log('INFO', 'VERIFY_BUTTON', `Admin ${adminMember.user.tag} menekan tombol '${action}' untuk user ID ${targetUserId}.`);
 
         await interaction.deferUpdate();
 
@@ -234,10 +237,10 @@ Akun Anda sekarang sedang menunggu persetujuan dari Admin. Anda akan menerima no
                 
                 try {
                     const approvalEmbed = new EmbedBuilder()
-                        .setColor(0x00FF00) // Green
+                        .setColor(0x00FF00)
                         .setTitle('✅ Pendaftaran Anda Disetujui!')
                         .setDescription(`Selamat! Pendaftaran Anda sebagai **${roleName}** telah disetujui oleh admin.
-Anda sekarang memiliki akses penuh ke fitur perpustakaan. Selamat menjelajahi!`) // More professional message
+Anda sekarang memiliki akses penuh ke fitur perpustakaan. Selamat menjelajahi!`)
                         .setTimestamp();
                     await targetMember.send({ embeds: [approvalEmbed] });
                 } catch (dmError) {
@@ -250,7 +253,6 @@ Anda sekarang memiliki akses penuh ke fitur perpustakaan. Selamat menjelajahi!`)
                 await db.query('DELETE FROM detail_siswa WHERE id_pengguna = ?', [user.id_pengguna]);
                 await db.query('DELETE FROM detail_guru_admin WHERE id_pengguna = ?', [user.id_pengguna]);
 
-
                 editedEmbed.setColor('Red')
                     .setTitle('❌ Pendaftaran Ditolak')
                     .setFooter({ text: `Ditolak oleh ${adminMember.user.tag}` });
@@ -259,10 +261,10 @@ Anda sekarang memiliki akses penuh ke fitur perpustakaan. Selamat menjelajahi!`)
 
                 try {
                     const rejectionEmbed = new EmbedBuilder()
-                        .setColor(0xFF0000) // Red
+                        .setColor(0xFF0000)
                         .setTitle('❌ Pendaftaran Anda Ditolak')
                         .setDescription(`Mohon maaf, pendaftaran Anda ke server ini telah ditolak oleh admin.
-Jika Anda merasa ini adalah kesalahan, silakan hubungi admin secara langsung.`) // More professional message
+Jika Anda merasa ini adalah kesalahan, silakan hubungi admin secara langsung.`)
                         .setTimestamp();
                     await targetMember.send({ embeds: [rejectionEmbed] });
                 } catch (dmError) {
@@ -272,10 +274,7 @@ Jika Anda merasa ini adalah kesalahan, silakan hubungi admin secara langsung.`) 
             }
         } catch (error) {
             log('ERROR', 'VERIFY_BUTTON', `Error saat memproses tombol verifikasi: ${error.message}`);
-            const logChannel = await client.channels.fetch(client.config.channels.botLogs);
-            if (logChannel) {
-                logChannel.send(`Terjadi kesalahan saat admin ${adminMember.user.tag} mencoba memverifikasi pengguna: ${error.message}`);
-            }
+            await handleInteractionError(interaction);
         }
     }
 };

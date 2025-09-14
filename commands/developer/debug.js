@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ChannelType, MessageFlags } = require('discord.js');
 const { log } = require('../../utils/logger');
 const { logAndReply } = require('../../utils/interaction-logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,9 +17,11 @@ module.exports = {
                 .setDescription('Menampilkan file konfigurasi yang sedang dimuat.')),
 
     async execute(interaction, client) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
         if (!client.config.developerIds || !client.config.developerIds.includes(interaction.user.id)) {
             log('WARN', 'DEBUG_ACCESS_DENIED', `User ${interaction.user.tag} (ID: ${interaction.user.id}) mencoba mengakses perintah /debug.`);
-            return logAndReply(interaction, client, { content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.' }, 'Debug Access Denied');
+            return interaction.editReply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.' });
         }
 
         const subcommand = interaction.options.getSubcommand();
@@ -47,14 +50,14 @@ module.exports = {
 
                     // 2. Roles Embeds
                     const roles = guild.roles.cache
-                        .sort((a, b) => b.position - a.position) // Sort from highest to lowest
-                        .filter(role => role.id !== guild.id); // Exclude @everyone role
+                        .sort((a, b) => b.position - a.position)
+                        .filter(role => role.id !== guild.id);
 
                     let currentRoleDescription = '';
                     let rolePage = 1;
                     for (const role of roles.values()) {
-                        const roleLine = `**${role.name}**: \\\`${role.id}\\\`\n`; // Corrected backticks
-                        if (currentRoleDescription.length + roleLine.length > 4000) { // Max description length
+                        const roleLine = `**${role.name}**: \`${role.id}\`\n`;
+                        if (currentRoleDescription.length + roleLine.length > 4000) {
                             embedsToSend.push(new EmbedBuilder()
                                 .setTitle(`Server Roles (Page ${rolePage})`)
                                 .setDescription(currentRoleDescription)
@@ -81,7 +84,7 @@ module.exports = {
                         let page = 1;
                         let embeds = [];
                         for (const channel of channelsCollection.values()) {
-                            const channelLine = `**#${channel.name}**: \\\`${channel.id}\\\u0060\n`; // Corrected backticks
+                            const channelLine = `**#${channel.name}**: \`${channel.id}\`\n`;
                             if (description.length + channelLine.length > 4000) {
                                 embeds.push(new EmbedBuilder()
                                     .setTitle(`Server Channels (${typeName}) (Page ${page})`)
@@ -107,14 +110,14 @@ module.exports = {
 
                     // Send all embeds in batches
                     if (embedsToSend.length === 0) {
-                        await logAndReply(interaction, client, { content: 'Tidak ada informasi server untuk ditampilkan.' }, 'Debug Guild Info Empty');
+                        await interaction.editReply({ content: 'Tidak ada informasi server untuk ditampilkan.' });
                     } else {
-                        for (let i = 0; i < embedsToSend.length; i += 10) { // Discord allows max 10 embeds per message
+                        for (let i = 0; i < embedsToSend.length; i += 10) {
                             const batch = embedsToSend.slice(i, i + 10);
                             if (i === 0) {
-                                await logAndReply(interaction, client, { embeds: batch }, 'Debug Guild Info');
+                                await interaction.editReply({ embeds: batch });
                             } else {
-                                await interaction.followUp({ embeds: batch, ephemeral: true }); // Use followUp for subsequent messages
+                                await interaction.followUp({ embeds: batch, flags: MessageFlags.Ephemeral });
                             }
                         }
                     }
@@ -124,16 +127,16 @@ module.exports = {
                     const configString = JSON.stringify(client.config, null, 2);
                     const embed = new EmbedBuilder()
                         .setTitle('Loaded Bot Configuration')
-                        .setDescription("```json\n" + configString.substring(0, 4000) + "\n```") // Using string concatenation
+                        .setDescription("```json\n" + configString.substring(0, 4000) + "\n```")
                         .setColor('Orange');
                     
-                    await logAndReply(interaction, client, { embeds: [embed] }, 'Debug Config Info');
+                    await interaction.editReply({ embeds: [embed] });
                     break;
                 }
             }
         } catch (error) {
             log('ERROR', 'DEBUG_COMMAND', `Error pada perintah /debug ${subcommand}: ${error.message}`);
-            await logAndReply(interaction, client, { content: '❌ Terjadi kesalahan saat menjalankan sub-perintah debug ini.' }, 'Debug Command Error');
+            await handleInteractionError(interaction);
         }
     },
 };

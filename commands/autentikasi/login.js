@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const crypto = require('crypto');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 
 module.exports = {
     data: new SlashCommandBuilder()

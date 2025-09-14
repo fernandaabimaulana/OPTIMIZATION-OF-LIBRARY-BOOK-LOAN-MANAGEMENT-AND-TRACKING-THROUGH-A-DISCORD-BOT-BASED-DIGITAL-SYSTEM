@@ -4,9 +4,10 @@ File: 📁 smanung-library-bot/commands/admin/tambah-buku.js
 Tujuan: Perintah untuk admin menambahkan data buku baru ke database.
 ================================================================================
 */
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const db = require('../../utils/db');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 const fs = require('node:fs');
 const path = require('node:path');
 const axios = require('axios');
@@ -87,10 +88,10 @@ module.exports = {
     async execute(interaction, client) {
         if (!interaction.member.roles.cache.has(client.config.roles.adminPerpus)) {
             log('WARN', 'TAMBAH_BUKU', `User ${interaction.user.tag} mencoba menambah buku tanpa izin.`);
-            return interaction.reply({ content: '❌ Anda tidak memiliki peran yang tepat untuk menggunakan perintah ini.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Anda tidak memiliki peran yang tepat untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const tingkatKelas = interaction.options.getString('kelas'); // X, XI, or XII
         const namaBuku = interaction.options.getString('nama_buku');
@@ -136,8 +137,8 @@ module.exports = {
             log('INFO', 'TAMBAH_BUKU_DB', `Buku '${namaBuku}' berhasil ditambahkan ke database.`);
 
         } catch (error) {
-            log('ERROR', 'TAMBAH_BUKU_DB', `Gagal menambahkan buku '${namaBuku}'. Error: ${error.message}`);
-            await interaction.editReply({ content: `❌ Terjadi kesalahan: ${error.message}`, ephemeral: true });
+            log('ERROR', 'TAMBAH_BUKU_DB', error.message);
+            await handleInteractionError(interaction);
         }
     },
 };

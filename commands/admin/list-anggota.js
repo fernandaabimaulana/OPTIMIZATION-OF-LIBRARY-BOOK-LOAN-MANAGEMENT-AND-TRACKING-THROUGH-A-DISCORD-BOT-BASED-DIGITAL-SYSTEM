@@ -5,6 +5,7 @@ Tujuan: Perintah untuk admin melihat daftar anggota terdaftar berdasarkan peran.
 ================================================================================
 */
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 const db = require('../../utils/db');
 const { log } = require('../../utils/logger');
 
@@ -19,11 +20,11 @@ module.exports = {
         const isAdmin = interaction.member.roles.cache.has(client.config.roles.adminPerpus);
         const isDeveloper = client.config.developerIds.includes(interaction.user.id);
 
-        if (!isAdmin && !isDeveloper) {
-            return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
-        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // ✅ Tambah deferReply di awal
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (!isAdmin && !isDeveloper) {
+            return interaction.editReply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral }); // ✅ editReply
+        }
 
         try {
             // Fetch all registered users from the database
@@ -85,13 +86,12 @@ module.exports = {
             addFields('🧑‍🏫 Guru', members.guru);
             addFields('🎓 Siswa', members.siswa);
 
-
             await interaction.editReply({ embeds: [embed] });
             log('INFO', 'LIST_ANGGOTA', `Daftar anggota telah ditampilkan untuk ${interaction.user.tag}.`);
 
         } catch (error) {
-            log('ERROR', 'LIST_ANGGOTA', `Gagal mengambil daftar anggota. Error: ${error.message}`);
-            await interaction.editReply({ content: `❌ Terjadi kesalahan saat mengambil data dari database: ${error.message}` });
+            log('ERROR', 'LIST_ANGGOTA', error.message); // ✅ Konsisten log
+            await handleInteractionError(interaction); // ✅ Standar error handler
         }
     },
 };

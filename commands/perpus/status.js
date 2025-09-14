@@ -4,8 +4,10 @@ File: 📁 smanung-library-bot/commands/perpus/status.js
 Tujuan: Perintah manual untuk me-refresh/mengirim ulang pesan status.
 ================================================================================
 */
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const cleanupAndPostStatus = require('../../utils/cleanupAndPost');
+const { handleInteractionError } = require('../../utils/errorHandler');
+const { log } = require('../../utils/logger');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -15,16 +17,16 @@ module.exports = {
 
     async execute(interaction, client) {
         if (!interaction.member.roles.cache.has(client.config.roles.adminPerpus)) {
-            return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
             await cleanupAndPostStatus(client, client.config.channels.statusBuku);
-            await interaction.editReply('✅ Pesan status berhasil diperbarui.');
+            await interaction.editReply({ content: '✅ Pesan status berhasil diperbarui.' });
         } catch (error) {
-            console.error('Gagal update status manual:', error);
-            await interaction.editReply('❌ Gagal memperbarui status.');
+            log('ERROR', 'STATUS_COMMAND', error.message);
+            await interaction.editReply({ content: '❌ Gagal memperbarui status.', flags: MessageFlags.Ephemeral });
         }
     },
 };

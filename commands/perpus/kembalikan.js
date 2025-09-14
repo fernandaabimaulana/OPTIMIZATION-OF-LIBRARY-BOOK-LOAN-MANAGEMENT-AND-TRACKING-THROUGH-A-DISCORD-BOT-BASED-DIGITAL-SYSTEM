@@ -5,14 +5,17 @@ Tujuan: Mengelola alur pengembalian buku dengan hak akses admin.
 Versi: 2.1 (Secure)
 ================================================================================
 */
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js'); // <-- DITAMBAHKAN: PermissionFlagsBits
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js'); // <-- DITAMBAHKAN: PermissionFlagsBits
 const updateStatus = require('../../utils/updateStatus');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
+const { log } = require('../../utils/logger');
+const { updateLeaderboard } = require('../../utils/leaderboardUpdater');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('kembalikan')
         .setDescription('Mengkonfirmasi pengembalian buku (Hanya Admin).')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages) // <-- DITAMBAHKAN: Lapis 1 Pengamanan
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
         .addStringOption(option =>
             option.setName('peminjaman')
                 .setDescription('Pilih transaksi peminjaman yang akan dikembalikan.')
@@ -37,7 +40,9 @@ module.exports = {
                 value: row.id_peminjaman.toString()
             }));
         } catch (error) {
-            console.error("Autocomplete Error di kembalikan.js:", error);
+            log('ERROR', 'KEMBALIKAN_AUTOCOMPLETE', error.message);
+            await interaction.respond([]);
+            return;
         }
         
         const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedValue.toLowerCase()));
@@ -45,12 +50,11 @@ module.exports = {
     },
 
     async execute(interaction, client) {
-        // <-- DITAMBAHKAN: Lapis 2 Pengamanan
         if (!interaction.member.roles.cache.has(client.config.roles.adminPerpus)) {
-            return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const peminjamanId = interaction.options.getString('peminjaman');
         const db = client.db;
 
@@ -69,14 +73,14 @@ module.exports = {
 
             await db.query('COMMIT');
 
-            await interaction.editReply('✅ Buku telah berhasil dikembalikan. Status channel akan diperbarui.');
-            
+            await interaction.editReply({ content: '✅ Buku telah berhasil dikembalikan. Status channel akan diperbarui.' });
             await updateStatus(client, client.config.channels.statusBuku);
+            await updateLeaderboard(client); // Update the leaderboard
 
         } catch (error) {
             await db.query('ROLLBACK');
-            console.error('Error saat mengembalikan buku:', error);
-            await interaction.editReply('❌ Gagal memproses pengembalian di database.');
+            log('ERROR', 'KEMBALIKAN', error.message);
+            await handleInteractionError(interaction);
         }
     },
 };

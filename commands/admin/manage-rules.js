@@ -1,5 +1,7 @@
 const { SlashCommandBuilder, ChannelType, PermissionsBitField, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { log } = require('../../utils/logger');
+const { handleInteractionError } = require('../../utils/errorHandler');
+
 
 // Helper function to get config from DB
 async function getConfig(db, key) {
@@ -35,87 +37,102 @@ module.exports = {
                 .setName('update')
                 .setDescription('Memperbarui isi teks peraturan.')),
 
-    async execute(interaction, client) {
-        const subcommand = interaction.options.getSubcommand();
-        const db = client.db;
 
-        try {
-            switch (subcommand) {
-                case 'post': {
-                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                    const channel = interaction.options.getChannel('channel');
-                    
-                    let rulesContent = await getConfig(db, 'rules_content');
-                    if (!rulesContent) {
-                        rulesContent = 'Peraturan belum diatur. Gunakan `/rules update` untuk mengaturnya.';
-                        await setConfig(db, 'rules_content', rulesContent);
-                    }
+async execute(interaction, client) {
+    const subcommand = interaction.options.getSubcommand();
+    const db = client.db;
 
-                    const embed = new EmbedBuilder()
-                        .setTitle('📜 Peraturan Server & Panduan Bot')
-                        .setDescription(rulesContent)
-                        .setColor(0x0099FF)
-                        .setTimestamp();
-
-                    const message = await channel.send({ embeds: [embed] });
-                    
-                    await setConfig(db, 'rules_channel_id', channel.id);
-                    await setConfig(db, 'rules_message_id', message.id);
-
-                    log('INFO', 'RULES_POST', `Pesan peraturan berhasil dikirim ke #${channel.name} oleh ${interaction.user.tag}.`);
-                    await interaction.editReply(`✅ Pesan peraturan berhasil dikirim ke channel ${channel}.`);
-                    break;
+    try {
+        switch (subcommand) {
+            case 'post': {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const channel = interaction.options.getChannel('channel');
+                
+                let rulesContent = await getConfig(db, 'rules_content');
+                if (!rulesContent) {
+                    rulesContent = 'Peraturan belum diatur. Gunakan `/rules update` untuk mengaturnya.';
+                    await setConfig(db, 'rules_content', rulesContent);
                 }
-                case 'view': {
-                    console.log('DEBUG: Masuk ke subcommand view.');
-                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                    console.log('DEBUG: Setelah deferReply.');
-                    let rulesContent;
-                    try {
-                        rulesContent = await getConfig(db, 'rules_content') || 'Peraturan belum diatur.';
-                        console.log('DEBUG: Setelah getConfig. rulesContent:', rulesContent);
-                    } catch (dbError) {
-                        console.error('ERROR: Gagal mengambil rules_content dari DB:', dbError);
-                        return interaction.editReply({ content: '❌ Terjadi kesalahan saat mengambil peraturan dari database.', flags: MessageFlags.Ephemeral });
-                    }
-                    const embed = new EmbedBuilder()
-                        .setTitle('Isi Peraturan Saat Ini')
-                        .setDescription(rulesContent)
-                        .setColor(0xEEEEEE);
-                    await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
-                    console.log('DEBUG: Setelah editReply.');
-                    break;
-                }
-                case 'update': {
-                    const rulesContent = await getConfig(db, 'rules_content') || '';
-                    
-                    const modal = new ModalBuilder()
-                        .setCustomId('rules_update_modal')
-                        .setTitle('Perbarui Peraturan Server');
 
-                    const contentInput = new TextInputBuilder()
-                        .setCustomId('rules_content_input')
-                        .setLabel("Isi Peraturan (mendukung Markdown)")
-                        .setStyle(TextInputStyle.Paragraph)
-                        .setValue(rulesContent)
-                        .setRequired(true);
-                    
-                    const actionRow = new ActionRowBuilder().addComponents(contentInput);
-                    modal.addComponents(actionRow);
+                const embed = new EmbedBuilder()
+                    .setTitle('📜 Peraturan Server & Panduan Bot')
+                    .setDescription(rulesContent)
+                    .setColor(0x0099FF)
+                    .setTimestamp();
 
-                    await interaction.showModal(modal);
-                    break;
-                }
+                const message = await channel.send({ embeds: [embed] });
+                
+                await setConfig(db, 'rules_channel_id', channel.id);
+                await setConfig(db, 'rules_message_id', message.id);
+
+                log('INFO', 'RULES_POST', `Pesan peraturan berhasil dikirim ke #${channel.name} oleh ${interaction.user.tag}.`);
+                await interaction.editReply(`✅ Pesan peraturan berhasil dikirim ke channel ${channel}.`);
+                break;
             }
+
+            case 'view': {
+                console.log('DEBUG: Masuk ke subcommand view.');
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                console.log('DEBUG: Setelah deferReply.');
+
+                let rulesContent;
+                try {
+                    rulesContent = await getConfig(db, 'rules_content') || 'Peraturan belum diatur.';
+                    console.log('DEBUG: Setelah getConfig. rulesContent:', rulesContent);
+                } catch (dbError) {
+                    console.error('ERROR: Gagal mengambil rules_content dari DB:', dbError);
+                    return interaction.editReply({
+                        content: '❌ Terjadi kesalahan saat mengambil peraturan dari database.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle('Isi Peraturan Saat Ini')
+                    .setDescription(rulesContent)
+                    .setColor(0xEEEEEE);
+
+                await interaction.editReply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+                console.log('DEBUG: Setelah editReply.');
+                break;
+            }
+
+            case 'update': {
+                const rulesContent = await getConfig(db, 'rules_content') || '';
+                
+                const modal = new ModalBuilder()
+                    .setCustomId('rules_update_modal')
+                    .setTitle('Perbarui Peraturan Server');
+
+                const contentInput = new TextInputBuilder()
+                    .setCustomId('rules_content_input')
+                    .setLabel("Isi Peraturan (mendukung Markdown)")
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setValue(rulesContent)
+                    .setRequired(true);
+                
+                const actionRow = new ActionRowBuilder().addComponents(contentInput);
+                modal.addComponents(actionRow);
+
+                await interaction.showModal(modal);
+                break;
+            }
+        }
+    } catch (error) {
+        log('ERROR', 'RULES_COMMAND', error.message);
+        await handleInteractionError(interaction);
+    }
+},
+
+            /*
         } catch (error) {
             log('ERROR', 'RULES_COMMAND', `Error pada perintah /rules: ${error.message}`);
             if (!interaction.replied && !interaction.deferred) {
                 await interaction.reply({ content: '❌ Terjadi kesalahan saat menjalankan perintah ini.', flags: MessageFlags.Ephemeral });
             } else {
                 await interaction.followUp({ content: '❌ Terjadi kesalahan saat menjalankan perintah ini.', flags: MessageFlags.Ephemeral });
-            }
-        }
-    },
+            }*/
+
 
     async handleModalSubmit(interaction, client) {
         if (interaction.customId !== 'rules_update_modal') return; 

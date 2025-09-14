@@ -1,6 +1,6 @@
-const { SlashCommandBuilder, ChannelType, PermissionsBitField, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, ChannelType, PermissionsBitField, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { log } = require('../../utils/logger');
-const { logAndReply } = require('../../utils/interaction-logger'); // For ephemeral replies
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 
 // Helper function to get a note by ID
 async function getNoteById(db, noteId) {
@@ -20,7 +20,7 @@ module.exports = {
                 .addChannelOption(option =>
                     option.setName('channel')
                         .setDescription('Channel untuk memposting catatan.')
-                        .addChannelTypes(ChannelType.GuildText) // Hanya channel teks
+                        .addChannelTypes(ChannelType.GuildText)
                         .setRequired(true)))
         .addSubcommand(subcommand =>
             subcommand
@@ -49,6 +49,8 @@ module.exports = {
                         .setRequired(true))),
 
     async execute(interaction, client) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // ✅ Standar error handling
+
         const subcommand = interaction.options.getSubcommand();
         const db = client.db;
 
@@ -56,7 +58,6 @@ module.exports = {
             switch (subcommand) {
                 case 'add': {
                     const channel = interaction.options.getChannel('channel');
-
                     const modal = new ModalBuilder()
                         .setCustomId(`notes_add_modal_${channel.id}`)
                         .setTitle(`Tambah Catatan di #${channel.name}`);
@@ -82,13 +83,11 @@ module.exports = {
                     break;
                 }
                 case 'list': {
-                    await interaction.deferReply({ ephemeral: true });
                     const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
-
                     const [notes] = await db.query('SELECT id, title, created_at FROM channel_notes WHERE channel_id = ? ORDER BY created_at DESC', [targetChannel.id]);
 
                     if (notes.length === 0) {
-                        return logAndReply(interaction, client, { content: `Tidak ada catatan di channel ${targetChannel}.` }, 'Notes List Empty');
+                        return await interaction.editReply({ content: `Tidak ada catatan di channel ${targetChannel}.` });
                     }
 
                     let description = `Daftar catatan di ${targetChannel}:\n\n`;
@@ -100,10 +99,10 @@ module.exports = {
 
                     const embed = new EmbedBuilder()
                         .setTitle('Daftar Catatan Channel')
-                        .setDescription(description.substring(0, 4096)) // Discord embed limit
+                        .setDescription(description.substring(0, 4096))
                         .setColor('Blue');
 
-                    await logAndReply(interaction, client, { embeds: [embed] }, 'Notes List');
+                    await interaction.editReply({ embeds: [embed] });
                     break;
                 }
                 case 'edit': {
@@ -111,7 +110,7 @@ module.exports = {
                     const note = await getNoteById(db, noteId);
 
                     if (!note) {
-                        return logAndReply(interaction, client, { content: `Catatan dengan ID ${noteId} tidak ditemukan.` }, 'Notes Edit Not Found');
+                        return await interaction.editReply({ content: `Catatan dengan ID ${noteId} tidak ditemukan.` });
                     }
 
                     const modal = new ModalBuilder()
@@ -132,12 +131,11 @@ module.exports = {
                     break;
                 }
                 case 'delete': {
-                    await interaction.deferReply({ ephemeral: true });
                     const noteId = interaction.options.getInteger('id');
                     const note = await getNoteById(db, noteId);
 
                     if (!note) {
-                        return logAndReply(interaction, client, { content: `Catatan dengan ID ${noteId} tidak ditemukan.` }, 'Notes Delete Not Found');
+                        return await interaction.editReply({ content: `Catatan dengan ID ${noteId} tidak ditemukan.` });
                     }
 
                     try {
@@ -152,13 +150,13 @@ module.exports = {
                     await db.query('DELETE FROM channel_notes WHERE id = ?', [noteId]);
                     log('INFO', 'NOTES_DELETE_DB', `Catatan ID ${noteId} dihapus dari database oleh ${interaction.user.tag}.`);
 
-                    await logAndReply(interaction, client, { content: `✅ Catatan dengan ID ${noteId} berhasil dihapus.` }, 'Notes Deleted');
+                    await interaction.editReply({ content: `✅ Catatan dengan ID ${noteId} berhasil dihapus.` });
                     break;
                 }
             }
         } catch (error) {
-            log('ERROR', 'NOTES_COMMAND', `Error pada perintah /notes ${subcommand}: ${error.message}`);
-            await logAndReply(interaction, client, { content: '❌ Terjadi kesalahan saat menjalankan perintah ini.' }, 'Notes Command Error');
+            log('ERROR', 'NOTES_COMMAND', error.message);
+            await handleInteractionError(interaction);
         }
     },
 
@@ -167,7 +165,7 @@ module.exports = {
         const userId = interaction.user.id;
 
         if (interaction.customId.startsWith('notes_add_modal')) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             const customIdParts = interaction.customId.split('_');
             const channelId = customIdParts[3];
             const title = interaction.fields.getTextInputValue('note_title_input');
@@ -176,7 +174,7 @@ module.exports = {
             try {
                 const targetChannel = await client.channels.fetch(channelId);
                 if (!targetChannel) {
-                    return logAndReply(interaction, client, { content: '❌ Channel yang dituju tidak ditemukan.' }, 'Notes Add Channel Not Found');
+                    return await interaction.editReply({ content: '❌ Channel yang dituju tidak ditemukan.' });
                 }
 
                 const embed = new EmbedBuilder()
@@ -193,21 +191,21 @@ module.exports = {
                 );
                 log('INFO', 'NOTES_ADD_DB', `Catatan baru (ID: ${result.insertId}) ditambahkan oleh ${interaction.user.tag}.`);
 
-                await logAndReply(interaction, client, { content: `✅ Catatan baru dengan judul "**${title}**" berhasil ditambahkan di ${targetChannel}.` }, 'Notes Added');
+                await interaction.editReply({ content: `✅ Catatan baru dengan judul "**${title}**" berhasil ditambahkan di ${targetChannel}.` });
 
             } catch (error) {
-                console.error('RAW ERROR IN NOTES_ADD_MODAL:', error);
-                await logAndReply(interaction, client, { content: '❌ Terjadi kesalahan saat mencoba menambahkan catatan. (Lihat log bot untuk detail)' }, 'Notes Add Error');
+                log('ERROR', 'NOTES_ADD_MODAL', error.message);
+                await handleInteractionError(interaction);
             }
 
         } else if (interaction.customId.startsWith('notes_edit_modal')) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             const noteId = parseInt(interaction.customId.split('_')[3]);
             const newContent = interaction.fields.getTextInputValue('note_content_input');
             const note = await getNoteById(db, noteId);
 
             if (!note) {
-                return logAndReply(interaction, client, { content: `Catatan dengan ID ${noteId} tidak ditemukan.` }, 'Notes Edit Modal Not Found');
+                return await interaction.editReply({ content: `Catatan dengan ID ${noteId} tidak ditemukan.` });
             }
 
             try {
@@ -226,15 +224,15 @@ module.exports = {
                 await message.edit({ embeds: [newEmbed] });
                 log('INFO', 'NOTES_EDIT_MSG', `Pesan catatan ID ${message.id} diupdate di #${targetChannel.name}.`);
 
-                await logAndReply(interaction, client, { content: `✅ Catatan dengan ID ${noteId} berhasil diperbarui.` }, 'Notes Edited');
+                await interaction.editReply({ content: `✅ Catatan dengan ID ${noteId} berhasil diperbarui.` });
 
             } catch (error) {
-                log('ERROR', 'NOTES_EDIT_MODAL', `Gagal update catatan dari modal: ${error.message}`);
+                log('ERROR', 'NOTES_EDIT_MODAL', error.message);
                 let errorMessage = '❌ Terjadi kesalahan saat mencoba memperbarui catatan.';
                 if (error.code === 10008) {
                     errorMessage += '\nPesan asli mungkin telah dihapus. Anda perlu membuat catatan baru.';
                 }
-                await logAndReply(interaction, client, { content: errorMessage }, 'Notes Edit Error');
+                await interaction.editReply({ content: errorMessage });
             }
         }
     }

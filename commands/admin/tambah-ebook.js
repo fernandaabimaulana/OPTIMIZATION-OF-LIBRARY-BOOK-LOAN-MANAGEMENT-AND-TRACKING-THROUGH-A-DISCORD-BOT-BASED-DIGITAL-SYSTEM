@@ -4,10 +4,11 @@ File: 📁 smanung-library-bot/commands/admin/tambah-ebook.js
 Tujuan: Perintah untuk admin menambahkan data e-book baru ke database dan menyimpan file PDF.
 ================================================================================
 */
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const fs = require('node:fs');
 const path = require('node:path');
 const axios = require('axios');
+const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
 const { log } = require('../../utils/logger');
 
 module.exports = {
@@ -37,12 +38,11 @@ module.exports = {
                 .setRequired(false)),
 
     async execute(interaction, client) {
-        // Cek izin khusus role adminPerpus
         if (!interaction.member.roles.cache.has(client.config.roles.adminPerpus)) {
-            return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply({ ephemeral: true }); // Balasan ephemeral karena ini perintah admin
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // ✅ Standar error handling
 
         const judul = interaction.options.getString('judul');
         const penulis = interaction.options.getString('penulis') || 'Tidak Diketahui';
@@ -51,7 +51,7 @@ module.exports = {
         const sampulAttachment = interaction.options.getAttachment('sampul');
         let namaFileSampul = null;
 
-        let finalPdfSource = ''; // This will always store the external URL
+        let finalPdfSource = '';
 
         try {
             // Handle PDF URL input
@@ -68,7 +68,7 @@ module.exports = {
             // Handle file upload for cover
             if (sampulAttachment) {
                 if (!['image/jpeg', 'image/png'].includes(sampulAttachment.contentType)) {
-                    return interaction.editReply({ content: '❌ Format file sampul harus JPG atau PNG.', ephemeral: true });
+                    return interaction.editReply({ content: '❌ Format file sampul harus JPG atau PNG.' });
                 }
 
                 namaFileSampul = `${Date.now()}-${sampulAttachment.name}`;
@@ -116,8 +116,8 @@ module.exports = {
             await interaction.editReply({ embeds: [embed] });
 
         } catch (error) {
-            console.error('Error saat menambahkan e-book:', error);
-            await interaction.editReply({ content: '❌ Terjadi kesalahan saat menambahkan e-book ke database.' });
+            log('ERROR', 'TAMBAH_EBOOK', error.message);
+            await handleInteractionError(interaction);
         }
     },
 };
