@@ -2,12 +2,12 @@
 ================================================================================
 File: 📁 smanung-library-bot/commands/perpus/kembalikan.js
 Tujuan: Mengelola alur pengembalian buku dengan hak akses admin.
-Versi: 2.1 (Secure)
+Versi: 2.3 (Simplified & Consolidated)
 ================================================================================
 */
-const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js'); // <-- DITAMBAHKAN: PermissionFlagsBits
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const updateStatus = require('../../utils/updateStatus');
-const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
+const { handleInteractionError } = require('../../utils/errorHandler');
 const { log } = require('../../utils/logger');
 const { updateLeaderboard } = require('../../utils/leaderboardUpdater');
 
@@ -51,7 +51,7 @@ module.exports = {
 
     async execute(interaction, client) {
         if (!interaction.member.roles.cache.has(client.config.roles.adminPerpus)) {
-            return interaction.editReply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
+            return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk menggunakan perintah ini.', flags: MessageFlags.Ephemeral });
         }
 
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -62,11 +62,18 @@ module.exports = {
             await db.query('START TRANSACTION');
 
             const [peminjamanData] = await db.query('SELECT id_buku, jumlah_pinjam, status FROM peminjaman WHERE id_peminjaman = ? FOR UPDATE', [peminjamanId]);
+            
             if (peminjamanData.length === 0 || peminjamanData[0].status === 'DIKEMBALIKAN') {
                 await db.query('ROLLBACK');
                 return interaction.editReply({ content: '❌ Data peminjaman tidak valid atau sudah dikembalikan.' });
             }
+            
             const { id_buku, jumlah_pinjam } = peminjamanData[0];
+
+            // Handle fine calculation, monitoring stop, and message update
+            if (client.overdueMonitor) {
+                await client.overdueMonitor.handleLoanReturn(parseInt(peminjamanId, 10));
+            }
 
             await db.query("UPDATE peminjaman SET status = 'DIKEMBALIKAN', timestamp_kembali = NOW() WHERE id_peminjaman = ?", [peminjamanId]);
             await db.query('UPDATE buku SET stok_tersedia = stok_tersedia + ? WHERE id_buku = ?', [jumlah_pinjam, id_buku]);
