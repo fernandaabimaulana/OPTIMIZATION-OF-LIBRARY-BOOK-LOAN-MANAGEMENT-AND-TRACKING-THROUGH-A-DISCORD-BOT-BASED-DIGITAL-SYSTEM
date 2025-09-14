@@ -301,6 +301,32 @@ module.exports = {
                         [bookId, kelasId, adminIdFk, jumlahPinjam, penanggungJawab, guru, durasiPinjam]
                     );
 
+                    const [insertResult] = await db.query('SELECT LAST_INSERT_ID() as id');
+                    const newLoanId = insertResult[0].id;
+
+                    // Get complete loan data for monitoring
+                    const [[newLoanData]] = await db.query(`
+                        SELECT 
+                            p.id_peminjaman,
+                            p.timestamp_pinjam,
+                            p.durasi_pinjam,
+                            p.penanggung_jawab,
+                            p.denda,
+                            b.nama_buku,
+                            k.nama_kelas,
+                            pen.discord_id
+                        FROM peminjaman p
+                        JOIN buku b ON p.id_buku = b.id_buku
+                        JOIN kelas k ON p.id_kelas = k.id_kelas
+                        LEFT JOIN pengguna pen ON p.penanggung_jawab = pen.nama_lengkap
+                        WHERE p.id_peminjaman = ?
+                    `, [newLoanId]);
+
+                    // Start monitoring this loan
+                    if (client.overdueMonitor && newLoanData) {
+                        client.overdueMonitor.handleNewLoan(newLoanData);
+                    }
+
                     originalEmbed.setColor('Green').spliceFields(7, 1, { name: 'Status', value: `Disetujui oleh ${interaction.user.tag}`, inline: true });
                     await interaction.editReply({ embeds: [originalEmbed], components: [disabledButtons] });
                     try { await targetMember.send(`Kabar baik! Permintaan peminjaman buku **"${book.nama_buku}"** (x${jumlahPinjam}) Anda telah **disetujui** oleh admin. Jangan lupa untuk mengembalikannya tepat waktu ya!`); } catch (e) { log('WARN', 'PINJAM_DM', `Gagal mengirim DM persetujuan ke ${targetMember.user.tag}`); }
