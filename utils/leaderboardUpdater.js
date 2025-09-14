@@ -16,12 +16,18 @@ async function updateLeaderboard(client) {
             return;
         }
 
-        // Fetch top 10 borrowers
+        // Fetch top 10 borrowers based on loan history and their outstanding fine from the pengguna table
         const [borrowers] = await db.query(
-            `SELECT p.penanggung_jawab, pu.discord_id, SUM(p.jumlah_pinjam) as total_buku_dipinjam, COUNT(p.id_peminjaman) as total_kali_meminjam
+            `SELECT 
+                p.penanggung_jawab, 
+                pu.discord_id, 
+                pu.total_denda_tertunggak,
+                SUM(p.jumlah_pinjam) as total_buku_dipinjam, 
+                COUNT(p.id_peminjaman) as total_kali_meminjam
              FROM peminjaman p
-             JOIN pengguna pu ON p.penanggung_jawab = pu.nama_lengkap
-             GROUP BY p.penanggung_jawab, pu.discord_id
+             LEFT JOIN pengguna pu ON p.penanggung_jawab = pu.nama_lengkap
+             WHERE pu.discord_id IS NOT NULL
+             GROUP BY p.penanggung_jawab, pu.discord_id, pu.total_denda_tertunggak
              ORDER BY total_buku_dipinjam DESC, total_kali_meminjam DESC
              LIMIT 10`
         );
@@ -46,7 +52,11 @@ async function updateLeaderboard(client) {
                     displayName = 'Unknown User';
                 }
                 const rankMedal = medal[i] || `#${i + 1}`;
-                description += `${rankMedal} **${displayName}**\n 📚 ${borrower.total_buku_dipinjam} buku | 🔄 ${borrower.total_kali_meminjam} kali\n`;
+                const statusDenda = borrower.total_denda_tertunggak > 0 ? 
+                    `💰 Denda: Rp ${borrower.total_denda_tertunggak.toLocaleString('id-ID')}` : 
+                    '✅status tidak ada denda';
+                description += `${rankMedal} **${displayName}**\n` + 
+                    `ㅤ📚 ${borrower.total_buku_dipinjam} bukuㅤ|ㅤ📄 ${borrower.total_kali_meminjam} kaliㅤ|ㅤ${statusDenda}\n`;
             }
         }
 
