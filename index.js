@@ -24,6 +24,7 @@ const startTimerSystem = require('./utils/timerSystem');
 const { log } = require('./utils/logger');
 const startMessageTimer = require('./utils/messageTimer');
 const { handleInteractionError } = require('./utils/errorHandler');
+const OverdueMonitor = require('./utils/overdueMonitor');
 
 require('dotenv').config();
 
@@ -51,6 +52,7 @@ client.db = require('./utils/db.js');
 client.config = require('./config.json');
 client.timers = new Map();
 client.messageTimers = new Map();
+client.overdueMonitor = null;
 
 // --- Pemuatan Perintah ---
 client.commands = new Collection();
@@ -435,6 +437,13 @@ process.on('SIGINT', () => {
     client.timers.clear();
     client.destroy();
     process.exit(0);
+});
+
+client.once('ready', async () => {
+    log('INFO', 'OVERDUE_MONITOR', 'Initializing OverdueMonitor from index.js...');
+    client.overdueMonitor = new OverdueMonitor(client);
+    await client.overdueMonitor.initialize();
+    log('INFO', 'OVERDUE_MONITOR', 'OverdueMonitor initialized successfully.');
 });
 
 client.login(process.env.DISCORD_TOKEN);
