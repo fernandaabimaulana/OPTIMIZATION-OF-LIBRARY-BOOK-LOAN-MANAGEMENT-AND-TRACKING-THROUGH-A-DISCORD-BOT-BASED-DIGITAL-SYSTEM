@@ -34,10 +34,13 @@ module.exports = {
     async autocomplete(interaction, client) {
         const focusedValue = interaction.options.getFocused();
         try {
-            const query = 'SELECT id_buku, nama_buku FROM buku WHERE nama_buku LIKE ? LIMIT 25';
+            const query = 'SELECT id_buku, nama_buku, tingkat_kelas FROM buku WHERE nama_buku LIKE ? LIMIT 25';
             const [rows] = await client.db.query(query, [`%${focusedValue}%`]);
             await interaction.respond(
-                rows.map(row => ({ name: row.nama_buku, value: row.id_buku.toString() })),
+                rows.map(row => ({ 
+                    name: `${row.nama_buku} (Kelas: ${row.tingkat_kelas || 'Umum'})`,
+                    value: row.id_buku.toString()
+                })),
             );
         } catch (error) {
             log('ERROR', 'AUTOCOMPLETE_HAPUS_BUKU', error.message);
