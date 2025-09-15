@@ -249,28 +249,52 @@ Anda sekarang memiliki akses penuh ke fitur perpustakaan. Selamat menjelajahi!`)
                 log('INFO', 'VERIFY_APPROVE', `User ${targetMember.user.tag} disetujui oleh ${adminMember.user.tag}.`);
 
             } else if (action === 'reject') {
-                await db.query('DELETE FROM pengguna WHERE discord_id = ?', [targetUserId]);
-                await db.query('DELETE FROM detail_siswa WHERE id_pengguna = ?', [user.id_pengguna]);
-                await db.query('DELETE FROM detail_guru_admin WHERE id_pengguna = ?', [user.id_pengguna]);
-
-                editedEmbed.setColor('Red')
+                const editedEmbed = EmbedBuilder.from(originalEmbed)
+                    .setColor('Red')
                     .setTitle('❌ Pendaftaran Ditolak')
-                    .setFooter({ text: `Ditolak oleh ${adminMember.user.tag}` });
+                    .setDescription(`Pendaftaran dari <@${targetUserId}> ditolak oleh ${adminMember.user.tag}. 
+Silakan periksa kembali data Anda dan ajukan registrasi ulang.`)
+                    .setFooter({ text: `Ditolak oleh ${adminMember.user.tag}` })
+                    .setTimestamp();
 
                 await originalMessage.edit({ embeds: [editedEmbed], components: [] });
 
+                // Hapus data dari database
                 try {
-                    const rejectionEmbed = new EmbedBuilder()
-                        .setColor(0xFF0000)
-                        .setTitle('❌ Pendaftaran Anda Ditolak')
-                        .setDescription(`Mohon maaf, pendaftaran Anda ke server ini telah ditolak oleh admin.
-Jika Anda merasa ini adalah kesalahan, silakan hubungi admin secara langsung.`)
-                        .setTimestamp();
-                    await targetMember.send({ embeds: [rejectionEmbed] });
-                } catch (dmError) {
-                    log('WARN', 'VERIFY_DM', `Gagal mengirim DM penolakan ke ${targetMember.user.tag}.`);
+                    await db.query('DELETE FROM detail_siswa WHERE id_pengguna = ?', [user.id_pengguna]);
+                    await db.query('DELETE FROM detail_guru_admin WHERE id_pengguna = ?', [user.id_pengguna]);
+                    await db.query('DELETE FROM pengguna WHERE id_pengguna = ?', [user.id_pengguna]);
+                    log('INFO', 'REGISTER_REJECT_DB', `Data pendaftaran user ${targetMember.user.tag} dihapus dari database.`);
+                } catch (dbError) {
+                    log('ERROR', 'REGISTER_REJECT_DB', `Gagal menghapus data user ${targetMember.user.tag} dari DB. Error: ${dbError.message}`);
                 }
-                log('INFO', 'VERIFY_REJECT', `User ${targetMember.user.tag} ditolak oleh ${adminMember.user.tag}.`);
+
+                // Kirim DM ke user
+                try {
+                    await targetMember.send(`❌ Pendaftaran Anda ditolak oleh admin **${adminMember.user.tag}**. Silakan daftar ulang dengan data yang benar di server.`);
+                } catch (dmError) {
+                    log('WARN', 'REGISTER_REJECT_DM', `Gagal kirim DM ke ${targetMember.user.tag}`);
+                }
+
+                // Buka kembali channel register
+                try {
+                    const registerChannelId = '1410599781038030936';
+                    const registerChannel = await interaction.guild.channels.fetch(registerChannelId);
+                    if (registerChannel) {
+                        await registerChannel.permissionOverwrites.edit(targetUserId, {
+                            ViewChannel: true
+                        });
+                        log('INFO', 'REGISTER_UNLOCK', `Channel #${registerChannel.name} dibuka kembali untuk ${targetMember.user.tag}.`);
+                    }
+                } catch (permError) {
+                    log('ERROR', 'REGISTER_UNLOCK', `Gagal membuka channel registrasi kembali untuk ${targetMember.user.tag}. Error: ${permError.message}`);
+                }
+
+                // Pastikan role "Belum Terdaftar" tetap ada
+                const unverifiedRoleId = '1410599779469234264';
+                if (!targetMember.roles.cache.has(unverifiedRoleId)) {
+                    await targetMember.roles.add(unverifiedRoleId).catch(() => {});
+                }
             }
         } catch (error) {
             log('ERROR', 'VERIFY_BUTTON', `Error saat memproses tombol verifikasi: ${error.message}`);

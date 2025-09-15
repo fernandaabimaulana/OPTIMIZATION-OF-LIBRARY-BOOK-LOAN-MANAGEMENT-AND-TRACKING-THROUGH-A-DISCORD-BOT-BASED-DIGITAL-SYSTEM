@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const crypto = require('crypto');
 const { log } = require('../../utils/logger');
-const { handleInteractionError } = require('../../utils/errorHandler'); // ✅ Tambah helper
+const { handleInteractionError } = require('../../utils/errorHandler');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,8 +9,6 @@ module.exports = {
         .setDescription('Memulai proses reset password untuk akun Anda.'),
 
     async execute(interaction, client) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
         log('INFO', 'FORGOT_PASSWORD', `User ${interaction.user.tag} memulai proses lupa password.`);
         const modal = new ModalBuilder()
             .setCustomId('lupa_password_modal')
@@ -28,13 +26,21 @@ module.exports = {
     },
 
     async handleModalSubmit(interaction, client) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-        const email = interaction.fields.getTextInputValue('lupa_password_email');
-        const db = client.db;
-        log('INFO', 'FORGOT_PASSWORD', `Menerima submit modal lupa password dari ${interaction.user.tag} untuk email ${email}.`);
-
         try {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            const email = interaction.fields.getTextInputValue('lupa_password_email');
+            const db = client.db;
+
+            // Validasi format email sederhana
+            const emailRegex = /^[^S@]+@[^S@]+\.[^S@]+$/;
+            if (!emailRegex.test(email)) {
+                log('WARN', 'FORGOT_PASSWORD', `Format email tidak valid dari ${interaction.user.tag}: ${email}`);
+                return interaction.editReply({ content: '❌ Format email yang Anda masukkan tidak valid. Silakan gunakan format `nama@domain.com`.' });
+            }
+
+            log('INFO', 'FORGOT_PASSWORD', `Menerima submit modal lupa password dari ${interaction.user.tag} untuk email ${email}.`);
+
             const [rows] = await db.query('SELECT id_pengguna, nama_lengkap, discord_id, password_salt FROM pengguna WHERE email = ?', [email]);
 
             if (rows.length === 0) {
@@ -62,7 +68,7 @@ module.exports = {
                     .setColor(0xFFFF00)
                     .setTitle('🔑 Reset Password Berhasil')
                     .setDescription('Password Anda telah berhasil di-reset. Berikut adalah password baru Anda:')
-                    .addFields({ name: 'Password Baru', value: `\`${newPassword}\`` })
+                    .addFields({ name: 'Password Baru', value: `${newPassword}` })
                     .setFooter({ text: 'Segera login dan ganti password Anda demi keamanan.' });
                 
                 await discordUser.send({ embeds: [dmEmbed] });
@@ -71,12 +77,12 @@ module.exports = {
                 await interaction.editReply({ content: '✅ Password baru telah dikirim ke DM Anda. Silakan periksa.' });
 
             } catch (dmError) {
-                log('ERROR', 'FORGOT_PASSWORD_DM', `Gagal mengirim DM ke user ${user.nama_lengkap} (Discord ID: ${user.discord_id}). Error: ${dmError.message}`);
-                await interaction.editReply({ content: '❌ Gagal mengirim password baru ke DM Anda. Pastikan DM Anda terbuka untuk bot ini.' });
+                log('ERROR', 'FORGOT_PASSWORD_DM', `Gagal mengirim DM ke user ${user.nama_lengkap} (Discord ID: ${user.discord_id}). Error: ${dmError.message}\n${dmError.stack}`);
+                await interaction.editReply({ content: '❌ Gagal mengirim password baru ke DM Anda. Pastikan DM Anda terbuka untuk bot ini dan coba lagi.' });
             }
 
         } catch (error) {
-            log('ERROR', 'FORGOT_PASSWORD', error.message);
+            log('ERROR', 'FORGOT_PASSWORD_MODAL', `Error pada modal lupa_password: ${error.message}\n${error.stack}`);
             await handleInteractionError(interaction);
         }
     }
